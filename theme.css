@@ -1,0 +1,2506 @@
+/* ================================================================
+   琉璃 Jadeveil — Apple Liquid Glass 主题
+   ----------------------------------------------------------------
+   设计立场：Chrome 是玻璃，内容是纸。
+
+   1. 玻璃只存在于工具层：侧栏 / 标签栏 / 状态栏 / Ribbon / 菜单 /
+      弹层 / 命令面板。这些位置才允许出现 backdrop-filter。
+   2. 内容层（编辑器、阅读视图）近乎不透明，正文对比度 ≥ 12:1，
+      不因为好看而牺牲可读性。
+   3. backdrop-filter 性能红线：只在 chrome 层与瞬态弹层出现；
+      正文滚动路径上零模糊层——滚动一个从不重绘的模糊面是最贵的
+      性能陷阱。
+   4. 正文内元素（callout / 代码块 / 表格 / 嵌入笔记）用「拟玻璃」：
+      渐变 + 内侧镜面高光模拟玻璃质感，零 backdrop-filter。
+   5. 色温中性化（v2 修订）：明度阶梯去冷蓝偏色，深色模式
+      content 比 chrome 亮一档（浅色模式本就如此），accent 收缩为点睛色
+      （链接 / checkbox / focus 光环等），不再铺底。细节见 §0b。
+   6. 玉幕清透（v3 温润如玉修订）：chrome 玻璃从「哑光近实心」回到真正
+      半透明（tint alpha 浅 0.64 / 深 0.85——v3.1 重校，深色靠高 alpha +
+      blur 光影而非低 alpha；saturate 提到 1.55/1.7），
+      accent 从 Apple Blue 移到青玉色相（默认 166）并解除 checkbox/tag
+      的 v2 硬编码蓝，浅色纸面由冷白转暖象牙白——温从纸来、润从
+      玻璃来、清透从 alpha 来。正文纸面维持 ≥0.96 不透明不动摇（立场 3）。
+
+   文件组织（与本注释块一起构成导航）：
+     0. Design Tokens（0a 材质常量 / 0b TOKEN 基座：base→语义派生）
+     1. Obsidian Variable Overrides (light / dark)
+     2. Typography — Reading Layer
+     3. Inline & Block Elements（3b Mermaid 中性化）
+     4. Callouts
+     5. Chrome Glass
+     6. Float Glass
+     7. Controls
+     8. Style Settings Wiring
+     9. A11y & Escape Hatches
+     10. 长尾表面覆盖
+   ================================================================ */
+
+/* ================================================================
+   维护契约（MAINTENANCE CONTRACT）
+   ----------------------------------------------------------------
+   ▎Token 分级（公共 / 内部）
+   - `--jadeveil-*`：公共 API。Style Settings 面板绑定 + 用户
+     snippet 可引用。**永不改名**；语义变更走主版本号。
+   - `--jv-*`：内部实现令牌。大版本内可自由重构，外部不应依赖。
+
+   ▎三条铁律
+   1. 变体（oled / paper-warm / glass-off）只允许重映射 token，
+      禁止直接触碰组件规则——组件规则只读语义 token。
+   2. backdrop-filter 只允许出现在白名单位置（§9 清单）。新增位置
+      = 修改设计立场，需先改本注释再改代码。
+   3. 新增 !important 必须同步更新 lint-baseline.json 并在行旁注明
+      对抗的 app.css 规则——没有台账的 !important 视为回归。
+
+   ▎设计单源（v3 起）
+   本主题自 v3 起为自持设计（温润如玉三分法，见文件头立场 6）。文中散布的
+   「v2 实测校准」注释是历史校准记录：凡其值与 v3 令牌或立场冲突，
+   以当前代码为准，禁止依据这些注释「忠实回滚」到 v2 旧值。
+
+   ▎DEPENDENCIES——对 Obsidian 非公开内部的依赖台账
+   以下依赖随 Obsidian 升级可能静默断裂（不报错、只降级），升级后
+   跑 scripts/theme_smoke.py 全量验证：
+   D1 `--workspace-background-translucent` 私有变量
+      → app.css 用它画 .app-container 的整窗遮罩（"黑纱"）。
+      我们覆盖它实现通透度根修。断裂表现：玻璃变闷。
+   D2 app.css translucency 规则群（带 !important）
+      → `.is-translucent:not(.is-fullscreen) .workspace-split 等
+      { background-color: transparent !important }`。§5 玻璃覆盖用
+      更高特异性 + !important 对抗。断裂表现：正文透到桌面。
+   D3 `.workspace-tab-header-container` DOM 层级
+      → §5b 图标胶囊选择器带 -container 路径压 app.css 同特异性
+      规则。断裂表现：active 胶囊变灰 fill。
+   D4 `.tree-item-children / .nav-folder-children` border-left
+      → 文件树缩进线的真实画法（oklch 直写，不走官方变量）。
+      断裂表现：缩进线复活。
+   D5 `.workspace-ribbon` 的 margin-top:40 与 `::before` 拖拽区
+      → 红绿灯区域。v3 起 margin 换 padding 让 Ribbon 玻璃长到窗口顶，
+      ::before 仅保留 app-region:drag 不参与绘制（app.css translucent
+      规则本就把它透明化）。断裂表现：左上角出现异色亮补丁，或图标
+      顶到红绿灯底下（padding 值随 app.css 的 40px 基准漂移）。
+   D6 `body.is-translucent / .is-fullscreen` 类注入时机
+      → 全部玻璃态的前置检测。断裂表现：整体退化为不透明。
+
+   ▎验证工具（scripts/）
+   - theme_lint.py：静态检查（括号 / 白名单 / !important 台账 /
+     token 孤儿 / 裸色值 / @settings YAML）。基线文件：
+     lint-baseline.json
+   - theme_smoke.py：运行时断言（需 Obsidian 开启）。注意：取值前
+     必须先禁 transition——窗口被遮挡时 Chromium 冻结过渡动画，
+     冻结插值在级联里压过一切（含 !important），直接读会拿到假值。
+
+   ▎协作纪律
+   同一时刻只允许一个 session 修改本文件；每个改动波次结束即 commit。
+   ================================================================ */
+
+/* @settings
+name: 玉幕 Jadeveil
+id: jadeveil
+settings:
+    -
+        id: jadeveil-glass-heading
+        title: 玻璃 Glass
+        type: heading
+        level: 1
+        collapsed: false
+    -
+        id: jadeveil-blur-chrome
+        title: Chrome 玻璃模糊
+        description: 侧栏 / 状态栏等外壳玻璃层的模糊强度
+        type: variable-number-slider
+        default: 24
+        min: 0
+        max: 40
+        step: 1
+        format: px
+    -
+        id: jadeveil-glass-alpha-light
+        title: 玉幕浓度（浅色）
+        description: 侧栏玻璃不透明度，越低越清透；最优值取决于壁纸
+        type: variable-number-slider
+        default: 0.64
+        min: 0.4
+        max: 1
+        step: 0.01
+    -
+        id: jadeveil-glass-alpha-dark
+        title: 玉幕浓度（深色）
+        description: 深色玻璃不透明度；过低时亮壁纸下侧栏文字可读性下降
+        type: variable-number-slider
+        default: 0.85
+        min: 0.5
+        max: 1
+        step: 0.01
+    -
+        id: jadeveil-glass-off
+        title: 关闭全部玻璃模糊
+        description: 性能 / 眩晕逃生门——所有 backdrop-filter 失效，退化为不透明纯色
+        type: class-toggle
+        default: false
+    -
+        id: jadeveil-oled
+        title: 深色纯黑 OLED
+        description: 深色模式背景换纯黑，玻璃色调加深，OLED 屏更省电
+        type: class-toggle
+        default: false
+    -
+        id: jadeveil-code-linenos
+        title: 代码块行号（实时预览）
+        description: 实时预览代码块左侧显示行号 gutter；阅读视图因整块渲染不支持
+        type: class-toggle
+        default: false
+    -
+        id: jadeveil-reading-heading
+        title: 阅读 Reading
+        type: heading
+        level: 1
+        collapsed: false
+    -
+        id: jadeveil-font-size
+        title: 正文字号
+        type: variable-number-slider
+        default: 16
+        min: 14
+        max: 20
+        step: 0.5
+        format: px
+    -
+        id: jadeveil-line-height
+        title: 正文行高
+        type: variable-number-slider
+        default: 1.75
+        min: 1.5
+        max: 2.2
+        step: 0.05
+    -
+        id: jadeveil-measure
+        title: 行宽（em）
+        type: variable-number-slider
+        default: 42
+        min: 34
+        max: 54
+        step: 1
+        format: em
+    -
+        id: jadeveil-tracking
+        title: 中英文字距
+        type: variable-number-slider
+        default: 0
+        min: 0
+        max: 0.08
+        step: 0.005
+        format: em
+    -
+        id: jadeveil-heading-follow-body
+        title: 标题跟随正文字体
+        description: 关闭「SF Pro Display 标题 × 苹方正文」配对，标题改为继承正文字体
+        type: class-toggle
+        default: false
+    -
+        id: jadeveil-paper-warm
+        title: 纸感加深
+        description: v3 默认已是暖象牙纸，此开关再加深一档到奶油米黄
+        type: class-toggle
+        default: false
+    -
+        id: jadeveil-sidebar-heading
+        title: 侧栏 Sidebar
+        type: heading
+        level: 1
+        collapsed: false
+    -
+        id: jadeveil-indent-guides
+        title: 显示文件树缩进线
+        description: 默认隐藏（Apple 风格，深目录树里缩进线是噪音），开启后恢复 hairline 缩进引导线
+        type: class-toggle
+        default: false
+    -
+        id: jadeveil-content-heading
+        title: 内容 Content
+        type: heading
+        level: 1
+        collapsed: false
+    -
+        id: jadeveil-image-mat
+        title: 嵌入图装裱（画框 mat）
+        description: 给嵌入图片加一圈实底白/深灰边框，收住黑底截图与透明底导出图（Excalidraw 等）；默认关闭，会给普通照片也带来相框感
+        type: class-toggle
+        default: false
+    -
+        id: jadeveil-accent-heading
+        title: 强调色 Accent
+        type: heading
+        level: 1
+        collapsed: false
+    -
+        id: jadeveil-accent-hue
+        title: 强调色色相
+        description: 0–360，默认 166（青玉）；调回 211 可得哑光蓝
+        type: variable-number-slider
+        default: 166
+        min: 0
+        max: 360
+        step: 1
+*/
+
+/* ═══════════════════════════ 0. Design Tokens ═══════════════════════════ */
+
+/* ---- 圆角：同心圆角体系。外层圆角 = 内层圆角 + 内边距 ----
+   xs(6) 行内 code/tag → s(8) 按钮/输入框 → m(10) callout/代码块/表格/
+   菜单项 → l(14) 菜单/popover/侧栏面板 → xl(18) modal/命令面板。
+   modal 18 减 8px 内边距 ≈ 内部卡片 10 量级，逐层套娃收敛。 */
+body {
+  --jadeveil-radius-xs: 6px;
+  --jadeveil-radius-s: 8px;
+  --jadeveil-radius-m: 10px;
+  --jadeveil-radius-l: 14px;
+  --jadeveil-radius-xl: 18px;
+  /* 右键菜单体量小，圆角比 m 级更收敛一档，非同心体系的独立例外 */
+  --jadeveil-radius-menu: 10px;
+
+  /* ---- 玻璃材质：模糊 / 饱和度 ----
+     v3 清透：blur 抬到 24 让透进来的桌面成为柔和色场而非轮廓；
+     saturate 1.55/1.7 补足半透明后损失的体内色彩（Apple 真实
+     translucent 材质在 1.8 附近，此处保守半档） */
+  --jadeveil-blur-chrome: 24px;
+  --jadeveil-blur-float: 28px;
+  --jadeveil-saturate-chrome: 1.55;
+  --jadeveil-saturate-float: 1.7;
+  /* 玉幕浓度（chrome tint alpha）：最优值取决于壁纸，交给用户滑杆 */
+  --jadeveil-glass-alpha-light: 0.64;
+  --jadeveil-glass-alpha-dark: 0.85;
+
+  /* ---- 阅读度量：Style Settings 可调，见 §8 ---- */
+  --jadeveil-font-size: 16px;
+  --jadeveil-line-height: 1.75;
+  --jv-lh-code: 1.7; /* 代码块行高：CJK 注释混排下限，编辑/阅读统一（1.85 发散 / 1.6 发闷） */
+  --jadeveil-measure: 42em;
+  --jadeveil-tracking: 0;
+  --jadeveil-accent-hue: 166; /* v3 青玉默认，与 @settings default 同步 */
+
+  /* ---- 标题字体与间距基准（乘以每级系数，见 §2） ---- */
+  --jadeveil-font-heading: -apple-system, "SF Pro Display", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif; /* v3.4：补齐与正文链一致的 CJK 回退，非 macOS 标题不再落泛型 */
+  --heading-spacing: 0.9em;
+
+  /* ---- 统一过渡：只过渡这四项，绝不 all ---- */
+  --jadeveil-transition: background-color 0.15s ease, border-color 0.15s ease,
+    box-shadow 0.2s ease, color 0.15s ease;
+}
+
+/* ═══════════ 0b. TOKEN 基座：三组基准派生一切（Fable5 令牌系统 v1.0）═══════════
+   1) 明度阶梯 --jv-base-00..40（elevation 低→高）
+   2) 双 ink 基准（文字墨 --jv-ink / 线条墨 --jv-ink-line，RGB 三元组配 alpha）
+   3) 强调色相 --accent-h。
+   surface / text / border / accent / glass 语义令牌全部由这三组派生，组件规则
+   直接引用语义令牌（别名双轨已于 P3 清偿）。Style Settings 绑定的变量名
+   （blur-chrome / font-size / line-height / measure / tracking / accent-hue）
+   保持 --jadeveil-* 前缀不可改名。 */
+
+/* ---- Light：基座 + 语义 ---- */
+body.theme-light {
+  /* 浅色空间：chrome < recessed < paper < float。v3 暖纸：正文从冷白转
+     暖象牙白，「温」由纸面色温承担，灰阶随纸同步转暖（黄轴 +4 左右，
+     不到可命名的米黄，但并排冷白立见温差）。 */
+  --jv-base-00: #e8e8e2;
+  --jv-base-10: #f0efe9;
+  --jv-base-20: #f5f4ee;
+  --jv-base-30: #faf9f4;
+  --jv-base-40: #fbfaf7;
+  /* 双 ink 基准（供 alpha 派生文字层级与边框阶梯）——随暖纸同步转暖 */
+  --jv-ink: 47, 46, 42;
+  --jv-ink-line: 60, 58, 52;
+  /* 粗体强调色：比正文 ink(≈12:1) 再压黑一档，PingFang 无 Bold 字形，
+     靠「更黑」而非「更粗」承载强调（编辑部惯例） */
+  --jv-text-strong: #211f1b;
+  --jv-surface-paper: var(--jv-base-40);
+  --jv-surface-paper-alt: var(--jv-base-20);
+  --jv-surface-recessed: var(--jv-base-10);
+  --jv-surface-chrome: #eaefe7; /* 玉面向暖纸靠拢半步（色相 120→97），与象牙纸相邻而非对撞；glass-off 降级色 */
+  --jv-surface-float: var(--jv-base-40);
+  /* 语义：边框/分隔（ink-line × alpha；表格线另行更淡处理） */
+  --jv-border-hairline: rgba(var(--jv-ink-line), 0.18);
+  --jv-border-faint: rgba(var(--jv-ink-line), 0.1);
+  --jv-border-strong: rgba(var(--jv-ink-line), 0.3);
+  /* 无缝分层缝线：侧栏↔正文这条界比 hairline 更淡，色调差承担主分层 */
+  --jv-border-seam: rgba(var(--jv-ink-line), 0.055);
+  /* 语义：中性填充 */
+  --jv-fill-hover: rgba(var(--jv-ink), 0.05);
+  --jv-fill-active: rgba(var(--jv-ink), 0.065);
+  --jv-fill-chip: rgba(125, 125, 125, 0.12);
+  /* 语义：强调色族（链接 ≠ 填充，链接达 AA；v2 收敛后 accent 仅点睛：
+     链接 / checkbox / focus 光环 / mod-cta / text-selection / 高亮黄，
+     不再铺底） */
+  --jv-accent-text: hsl(var(--accent-h), 52%, 32%); /* 默认青玉 ≈#277c68，4.8:1 ✓AA */
+  --jv-accent-fill: hsl(var(--accent-h), 44%, 40%); /* 默认青玉 ≈#39937e */
+  --jv-accent-ring: 0 0 0 3px hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.4); /* focus 光环（0.15 对键盘用户过弱，v3.3 提到 0.25） */
+  /* 玻璃层（tint 基色 = 对应实心 surface，保证零色差降级；v3 清透化：
+     alpha 下调让桌面真正透进玻璃，saturate 上调补足体内色彩——玉的
+     「润」来自半透明体内散射的环境色。对比度实算下界（纯黑壁纸、
+     忽略 blur 增亮）：文件名 ink ≈4.7:1、muted ≈2.9:1——玻璃对比
+     本质依赖壁纸，无法静态保证，勿在注释里写达标承诺） */
+  --jv-glass-chrome-tint: rgba(234, 239, 231, var(--jadeveil-glass-alpha-light)); /* 与 surface-chrome 同基色（零色差降级）；浓度走 Style Settings 滑杆 */
+  --jv-glass-float-tint: rgba(250, 253, 250, 0.76); /* v3.3 掺 2% 玉底：浮层与 chrome 同族，不再是「白玻璃 vs 玉玻璃」 */
+  --jv-glass-control-tint: rgba(255, 255, 255, 0.5);
+  --jv-glass-control-hover: rgba(255, 255, 255, 0.62);
+  --jv-glass-control-active: rgba(255, 255, 255, 0.78);
+  --jv-glass-specular: rgba(255, 255, 255, 0.65);
+  --jv-glass-border: rgba(255, 255, 255, 0.5);
+  --jv-glass-panel-sheen: linear-gradient(115deg, rgba(255, 255, 255, 0.2), transparent 28%);
+  /* 阴影三档（柔和弥散：低不透明度 + 大 blur，环境光而非接触影） */
+  --jv-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.04);
+  --jv-shadow-2: 0 4px 24px rgba(0, 0, 0, 0.07), 0 1px 3px rgba(0, 0, 0, 0.03);
+  --jv-shadow-3: 0 12px 48px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(0, 0, 0, 0.04);
+
+  /* paper 微透 + 遮罩：原别名的真值，改 --jv-* 命名（其余转发别名已删，用法直引目标）。
+     注意 paper 无 blur，透明度不可下探——透进来的是锐利桌面像素（立场 3） */
+  --jv-glass-paper: rgba(251, 250, 246, 0.98);
+  --jv-scrim: rgba(0, 0, 0, 0.25);
+}
+
+/* ---- Dark：基座 + 语义（明度翻转：content 比 chrome 亮一档，与浅色模式
+   语义统一——两种模式都是「内容托亮、侧栏隐退」。阶梯令牌名不动，只重排
+   语义映射指向 + 换新阶梯值。--jv-surface-recessed 因此从「更暗」变
+   「更亮」：不对称是刻意设计，不是 bug） ---- */
+body.theme-dark {
+  /* 夜读阶梯遵循真实空间关系：recessed < chrome < paper < elevated < float。
+     v3 墨玉：石墨底注入 3–5% 玉色底温（绿轴 +2，不到可命名的绿，但
+     夜里玉不再缺席）；明确玉色交给 accent 与玻璃边缘光。 */
+  --jv-base-00: #161817;
+  --jv-base-10: #1b1d1c;
+  --jv-base-20: #1f2120;
+  --jv-base-30: #262927;
+  --jv-base-40: #2f3230;
+  --jv-ink: 215, 217, 214;
+  --jv-ink-line: 87, 90, 87;
+  /* 标题与粗体使用柔白，纯白只留给系统级强焦点。 */
+  --jv-text-strong: #eceeeb;
+  --jv-surface-paper: var(--jv-base-20);
+  --jv-surface-paper-alt: var(--jv-base-00);
+  --jv-surface-recessed: var(--jv-base-00);
+  --jv-surface-chrome: #1f2522; /* 深夜玉面（v3.1 提亮：与纸面 #1f2120 同明度带，侧栏不再黑框），glass-off 降级色 */
+  --jv-surface-float: var(--jv-base-30);
+  --jv-border-hairline: rgba(var(--jv-ink-line), 0.55);
+  --jv-border-faint: rgba(var(--jv-ink-line), 0.3);
+  --jv-border-strong: rgba(var(--jv-ink-line), 0.72);
+  /* 无缝分层缝线：深色用极淡白缝作接缝高光（v2 曾用纯黑缝，v3 换白后注释未跟，评审实锤矛盾） */
+  --jv-border-seam: rgba(255, 255, 255, 0.055);
+  --jv-fill-hover: rgba(255, 255, 255, 0.06);
+  --jv-fill-active: rgba(255, 255, 255, 0.09);
+  --jv-fill-chip: rgba(125, 125, 125, 0.24);
+  --jv-accent-text: hsl(var(--accent-h), 42%, 62%); /* 默认青玉 ≈#75c7b4，8:1 ✓AA */
+  --jv-accent-fill: hsl(var(--accent-h), 42%, 48%);
+  --jv-accent-ring: 0 0 0 3px hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.4); /* focus 光环（v3.3 同浅色提亮） */
+  /* 深色玻璃 v3.1 重校（用户反馈：侧栏与内容失调、设置弹窗缺口黑块）：
+     tint 基色提到与纸面同明度带 + alpha 0.85——深色的「清透」主要靠 blur
+     透进的环境光影，不靠低 alpha（低 alpha 深 tint 在暗桌面上塌成黑框，
+     与暖纸内容形成明度断层）；0.85 同时压住亮壁纸的可读性风险 */
+  --jv-glass-chrome-tint: rgba(31, 37, 34, var(--jadeveil-glass-alpha-dark)); /* 浓度走 Style Settings 滑杆 */
+  --jv-glass-float-tint: rgba(35, 40, 37, 0.72); /* v3.3 掺玉底与 chrome 归族 */
+  --jv-glass-control-tint: rgba(255, 255, 255, 0.055);
+  --jv-glass-control-hover: rgba(255, 255, 255, 0.095);
+  --jv-glass-control-active: rgba(255, 255, 255, 0.14);
+  /* 边缘光带玉色：夜里的玉在轮廓处呼吸，而非铺面 */
+  --jv-glass-specular: rgba(214, 240, 228, 0.15);
+  --jv-glass-border: rgba(214, 240, 228, 0.11);
+  --jv-glass-panel-sheen: linear-gradient(115deg, rgba(214, 240, 228, 0.06), transparent 30%);
+  --jv-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.25), 0 2px 10px rgba(0, 0, 0, 0.2);
+  --jv-shadow-2: 0 6px 28px rgba(0, 0, 0, 0.35), 0 1px 4px rgba(0, 0, 0, 0.25);
+  --jv-shadow-3: 0 16px 56px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.3);
+
+  /* paper 微透 + 遮罩：原别名的真值，改 --jv-* 命名。scrim 0.5→0.4：
+     全窗设置模态在红绿灯区的原生缺口会透出 scrim 叠玻璃的工作区，
+     0.5 黑纱使缺口塌成纯黑块（用户截图实锤），0.4 缓和且弹窗对比仍够 */
+  --jv-glass-paper: rgba(31, 33, 32, 0.96);
+  --jv-scrim: rgba(0, 0, 0, 0.4);
+}
+
+/* ═══════════════ 1. Obsidian Variable Overrides (light / dark) ═══════════════
+   全部通过覆盖官方变量实现，插件生态（Dataview / Kanban / Excalidraw…）
+   自动继承，不需要逐个插件适配。 */
+
+/* 强调色：色相走 Style Settings 滑杆，饱和度固定，明度按明暗模式各一档。
+   v3 饱和度 100%→46%：玉是低饱和材质，满饱和在 166 色相会发荧光绿；
+   降饱和后滑杆扫过任意色相都是「玉化」的哑光色，不再出霓虹 */
+body {
+  --accent-h: var(--jadeveil-accent-hue);
+  --accent-s: 46%;
+}
+/* 分隔线族的特异性对抗（v3 实测，用户截图实锤黑缝）：app.css 在
+   `.is-translucent:not(.is-fullscreen)`（0-2-0）上把 --divider-color 定为
+   rgba(0,0,0,0.15)，裸 body（0-0-1）与 body.theme-*（0-1-1）都输掉级联——
+   resize-handle 的 1px border 因此在玻璃↔纸交界画出一根黑缝。类名加倍
+   提到 0-2-1 压回（与 §9 glass-off 同款手法） */
+body.theme-light.theme-light,
+body.theme-dark.theme-dark {
+  --divider-color: var(--jv-border-seam);
+  --divider-color-hover: var(--jv-border-hairline);
+  --tab-outline-color: transparent;
+  --tab-divider-color: transparent;
+}
+body.theme-light {
+  --accent-l: 35%; /* 青玉中深明度：mod-cta 白字对比 42% 时仅 3.6:1，压到 35% 达 4.6:1 ✓AA */
+}
+body.theme-dark {
+  --accent-l: 50%;
+}
+
+/* 通透度根修：Obsidian 原生 --background-translucent 在深色下是
+   60% 黑纱（实测 .app-container 为 oklch(0 0 none / 0.6)），把玻璃
+   闷死。改为轻纱，让桌面真正透进玻璃层。glass-off 时的回浓见 §9。 */
+body.theme-light {
+  --background-translucent: rgba(255, 255, 255, 0.28);
+  /* app.css 实际引用的是 workspace- 前缀这个（实测），两个都覆盖保兼容 */
+  --workspace-background-translucent: rgba(255, 255, 255, 0.28);
+}
+body.theme-dark {
+  --background-translucent: rgba(14, 16, 15, 0.35); /* 随墨玉阶梯微调底温 */
+  --workspace-background-translucent: rgba(14, 16, 15, 0.35);
+}
+
+body.theme-light {
+  --background-primary: var(--jv-surface-paper); /* 纸 = base-40 */
+  --background-primary-alt: var(--jv-surface-paper-alt);
+  --text-normal: rgb(var(--jv-ink));
+  --text-muted: rgba(var(--jv-ink-line), 0.78); /* 0.72→0.78：纸底变亮后补偿到 ≈5.5:1 AA */
+  --text-faint: rgba(var(--jv-ink-line), 0.4);
+  --text-accent: var(--jv-accent-text);
+  --text-accent-hover: var(--jv-accent-text);
+  --link-color: var(--jv-accent-text);
+  --link-color-hover: var(--jv-accent-text);
+  --link-external-color: var(--jv-accent-text);
+  --link-external-color-hover: var(--jv-accent-text);
+
+  --background-modifier-border: var(--jv-border-hairline);
+  --background-modifier-border-hover: rgba(var(--jv-ink-line), 0.4); /* 去蓝，随 ink-line 派生 */
+  --background-modifier-hover: rgba(0, 0, 0, 0.04);
+  --background-modifier-active-hover: rgba(0, 0, 0, 0.06);
+
+  --text-selection: hsla(var(--accent-h), 50%, 45%, 0.35); /* v3.4：0.25 明度差仅 1.26，对绿色觉障碍是弱信号，提浓一档 */
+  --text-highlight-bg: rgba(255, 213, 80, 0.35); /* v3.3 蜂蜜黄：v2 校准纯黄 rgba(255,241,0,0.4) 是玉系里的饱和度之王，降温融入暖纸 */
+
+  --hr-color: var(--jv-border-hairline);
+  /* 引用块：粗实心 ink 条（本主题签名式样）；浅色条色已按 v2 白天
+     实测值单独锁定，不再随 --jv-ink 派生（深色同理见下方 dark 块） */
+  --blockquote-border-color: rgba(var(--jv-ink), 0.78);
+
+  --code-background: #f6f5f0; /* v3 暖纸适配：v2 校准值 #f7f7f7 在象牙纸上偏冷，黄轴对齐 */
+  --code-normal: #3e3d39; /* 随暖 ink 同步 */
+
+  /* accent 克制：tag 全域中性化，全库不留彩色 chip 噪音 */
+  --tag-background: var(--jv-fill-chip);
+  --tag-color: var(--text-muted);
+  --tag-background-hover: rgba(var(--jv-ink), 0.1);
+  --tag-color-hover: var(--text-muted);
+
+  /* v2 实测校准：17×17 圆角方块 r6、勾选底与标签同蓝
+     rgb(46,109,233)（与 tag chip 一致，脱离 accent 滑杆）、白勾；未勾选是
+     1.5px 环 rgba(26,28,30,0.22)（border 实现，等效 inset shadow）。 */
+  --checkbox-size: 17px;
+  --checkbox-radius: 6px;
+  --checkbox-color: var(--jv-accent-fill); /* v3 青玉：随 accent 滑杆，解除 v2 硬编码蓝 */
+  --checkbox-color-hover: hsl(var(--accent-h), 44%, 36%); /* hover 深一档 */
+  --checkbox-marker-color: #ffffff;
+  --checkbox-border-color: rgba(26, 28, 30, 0.5); /* v3.4 a11y：v2 校准值 0.22 仅 1.58:1，状态指示件需 ≥3:1（WCAG 1.4.11） */
+  --checkbox-border-color-hover: rgba(26, 28, 30, 0.65);
+  --checklist-done-color: rgba(31, 34, 37, 0.55); /* v3.4 a11y：0.4 仅 2.4:1 连辨认都勉强，0.55≈3:1（删除线携带语义故 3:1 档可辩护） */
+}
+
+body.theme-dark {
+  --background-primary: var(--jv-surface-paper); /* 夜读纸面 = base-20 */
+  --background-primary-alt: var(--jv-surface-paper-alt);
+  --text-normal: rgb(var(--jv-ink));
+  --text-muted: rgba(206, 209, 205, 0.68);
+  --text-faint: rgba(191, 194, 190, 0.38);
+  --text-accent: var(--jv-accent-text);
+  --text-accent-hover: var(--jv-accent-text);
+  --link-color: var(--jv-accent-text);
+  --link-color-hover: var(--jv-accent-text);
+  --link-external-color: var(--jv-accent-text);
+  --link-external-color-hover: var(--jv-accent-text);
+
+  --background-modifier-border: var(--jv-border-hairline);
+  --background-modifier-border-hover: rgba(var(--jv-ink-line), 0.75); /* 去蓝，随 ink-line 派生 */
+  --background-modifier-hover: rgba(255, 255, 255, 0.06);
+  --background-modifier-active-hover: rgba(255, 255, 255, 0.09);
+
+  --text-selection: hsla(var(--accent-h), 42%, 55%, 0.3); /* v3 随 accent 走青玉 */
+  --text-highlight-bg: rgba(255, 214, 90, 0.25); /* v3.3 蜂蜜黄：0.4 纯黄叠深底发浑浊橄榄（实拍），降为暖蜜色薄涂 */
+
+  --hr-color: var(--jv-border-hairline);
+  /* 引用块：粗实心 ink 条（本主题签名式样），随 ink 明暗自动同步，不再挂
+     accent；深色条色已按 v2 暗夜实测值单独锁定，不再随 --jv-ink 派生 */
+  --blockquote-border-color: rgba(var(--jv-ink), 0.78);
+
+  --code-background: var(--jv-surface-recessed);
+  --code-normal: #c9ccc9;
+
+  /* accent 克制：tag 全域中性化，全库不留彩色 chip 噪音 */
+  --tag-background: var(--jv-fill-chip);
+  --tag-color: var(--text-muted);
+  --tag-background-hover: rgba(var(--jv-ink), 0.1);
+  --tag-color-hover: var(--text-muted);
+
+  --checkbox-size: 17px;
+  --checkbox-radius: 6px;
+  --checkbox-color: var(--jv-accent-fill); /* v3 青玉：随 accent 滑杆，玉底白勾在深纸上成立 */
+  --checkbox-color-hover: hsl(var(--accent-h), 42%, 56%); /* hover 亮一档 */
+  --checkbox-marker-color: #10201b; /* v3.4 a11y：白勾 on 深色玉/琥珀/藕紫底全部 <3:1，换深墨 glyph（6-7:1），且「浅底深字」更贴深色玉化语言 */
+  --checkbox-border-color: rgba(244, 244, 244, 0.45); /* v3.4 a11y：0.28 仅 2.41:1 */
+  --checkbox-border-color-hover: rgba(244, 244, 244, 0.6);
+  --checklist-done-color: rgba(244, 244, 244, 0.5); /* v3.4 a11y：0.42 实算 3.74，提到 4.65 */
+}
+
+/* ═══════════════════ 2. Typography — Reading Layer ═══════════════════ */
+
+/* ---- 字体回退链：尊重用户外观设置，主题只补全 fallback ---- */
+body {
+  --font-text-theme: "SF Pro Text", -apple-system, "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-interface-theme: -apple-system, "SF Pro Text", "PingFang SC",
+    sans-serif;
+  --font-monospace-theme: "SF Mono", ui-monospace, "Fira Code", Menlo,
+    monospace;
+}
+
+/* ---- 正文度量：只作用于笔记容器，不碰侧栏等 UI ---- */
+.markdown-source-view.mod-cm6,
+.markdown-rendered {
+  --font-text-size: var(--jadeveil-font-size);
+  --line-height-normal: var(--jadeveil-line-height);
+  --file-line-width: var(--jadeveil-measure);
+  --p-spacing: 1.4em;
+}
+
+/* CJK 渐进增强：中西文自动空隙 + 标点挤压，仅正文容器，@supports 兜底 */
+@supports (text-autospace: normal) {
+  .markdown-rendered,
+  .markdown-source-view.mod-cm6 .cm-content {
+    text-autospace: normal;
+  }
+}
+@supports (text-spacing-trim: space-first) {
+  .markdown-rendered,
+  .markdown-source-view.mod-cm6 .cm-content {
+    text-spacing-trim: space-first;
+  }
+}
+/* 代码块内不需要中西文自动空隙处理，显式归零；连字一并禁用（v3.4）：
+   SF Mono 缺席时回退链落到 Fira Code，=> / >= 被连成 ⇒ / ≥（测试文档
+   实锤）——笔记里的代码以「忠实呈现源码字符」优先 */
+.markdown-rendered :is(code, pre),
+.markdown-source-view.mod-cm6 :is(.cm-inline-code, .HyperMD-codeblock) {
+  text-autospace: auto;
+  text-spacing-trim: auto;
+  font-variant-ligatures: none;
+}
+
+/* 中英文字距：只给正文行，代码归零（绝不作用于 code/pre） */
+.markdown-rendered :is(p, li, blockquote, th, td),
+.markdown-source-view.mod-cm6 .cm-line {
+  letter-spacing: var(--jadeveil-tracking); /* 阅读态补 blockquote/表格，对齐编辑态全 cm-line 的作用面（评审实锤双态漂移） */
+}
+.markdown-rendered :is(code, pre),
+.markdown-source-view.mod-cm6 :is(.cm-inline-code, .HyperMD-codeblock) {
+  letter-spacing: 0;
+}
+
+/* 标题可用 word-break: auto-phrase 时启用，避免中文标题断在词中间 */
+@supports (word-break: auto-phrase) {
+  .markdown-rendered :is(h1, h2, h3, h4, h5, h6) {
+    word-break: auto-phrase;
+  }
+}
+
+/* ---- 标题字体：SF Pro Display 标题 × 苹方正文 ----
+   （曾误写"黑体×楷体经典配对"——全文件从无楷体声明，评审实锤幻影文案） ----
+   Style Settings 「标题跟随正文字体」可关闭此行为。 */
+.markdown-rendered :is(h1, h2, h3, h4, h5, h6),
+.markdown-source-view.mod-cm6 .HyperMD-header,
+.inline-title {
+  font-family: var(--jadeveil-font-heading);
+  /* 双态统一（外部评审实锤漂移）：阅读态曾继承 app 默认 -0.25px、
+     编辑态被 .cm-line 拍平为 0，标题字距两态不一致 */
+  letter-spacing: 0;
+}
+body.jadeveil-heading-follow-body .markdown-rendered :is(h1, h2, h3, h4, h5, h6),
+body.jadeveil-heading-follow-body
+  .markdown-source-view.mod-cm6
+  .HyperMD-header,
+body.jadeveil-heading-follow-body .inline-title {
+  font-family: inherit;
+}
+
+/* ---- 标题层级：官方 size/weight 变量 + 选择器兜底行高/字距/间距 ---- */
+body {
+  /* 标题音阶（实际相邻比 1.27/1.16/1.13/1.08，向下递减）：h4 明显大于正文，
+     h5/h6 落到正文尺寸靠「字重 + 弱化色」区分而非再缩小（缩到比正文小
+     会读成注释而非标题）。 */
+  --h1-size: 1.8em;
+  --h2-size: 1.42em;
+  --h3-size: 1.22em;
+  --h4-size: 1.08em;
+  --h5-size: 1em;
+  --h6-size: 1em;
+
+  --h1-weight: 700;
+  --h2-weight: 650;
+  --h3-weight: 600;
+  --h4-weight: 600;
+  --h5-weight: 600;
+  --h6-weight: 600;
+
+  --inline-title-size: 1.9em;
+  --inline-title-weight: 700;
+}
+
+.markdown-rendered h1,
+.markdown-source-view.mod-cm6 .HyperMD-header-1 {
+  line-height: 1.35;
+  letter-spacing: 0;
+  margin-top: calc(var(--heading-spacing) * 2.2);
+}
+.markdown-rendered h2,
+.markdown-source-view.mod-cm6 .HyperMD-header-2 {
+  line-height: 1.4;
+  margin-top: calc(var(--heading-spacing) * 2);
+}
+.markdown-rendered h3,
+.markdown-source-view.mod-cm6 .HyperMD-header-3 {
+  margin-top: calc(var(--heading-spacing) * 1.6);
+}
+.markdown-rendered h4,
+.markdown-source-view.mod-cm6 .HyperMD-header-4 {
+  margin-top: calc(var(--heading-spacing) * 1.3);
+}
+/* H5/H6 区分（v3.4，测试文档实锤两级完全同观感）：同尺寸下 H5 用正文全浓
+   墨、H6 退 muted，靠色深分级——比再缩字号安全（缩小会读成注释）。 */
+.markdown-rendered h5,
+.markdown-source-view.mod-cm6 .HyperMD-header-5 {
+  color: var(--text-normal);
+  margin-top: calc(var(--heading-spacing) * 1.1);
+}
+.markdown-rendered h6,
+.markdown-source-view.mod-cm6 .HyperMD-header-6 {
+  color: var(--text-muted);
+  letter-spacing: 0;
+  margin-top: var(--heading-spacing);
+}
+
+/* ---- 标题节奏对抗（外部评审实锤，视觉层次核心修复）----
+   app.css 有 `.markdown-rendered :is(p,pre,table,ul,ol) + :is(h1..h6)
+   { margin-top: var(--heading-spacing) }`（0-1-2），压过上面 0-1-1 的
+   档位规则——凡跟在段落/代码/表格/列表后的标题（绝大多数场景）都被
+   拍平成 ×1，标题贴上一节而不贴自己的内容（邻近性倒挂）。同构造
+   0-1-2 规则、晚于 app.css 加载压回，恢复设计音阶。 */
+.markdown-rendered :is(p, pre, table, ul, ol) + h1 {
+  margin-top: calc(var(--heading-spacing) * 2.2);
+}
+.markdown-rendered :is(p, pre, table, ul, ol) + h2 {
+  margin-top: calc(var(--heading-spacing) * 2);
+}
+.markdown-rendered :is(p, pre, table, ul, ol) + h3 {
+  margin-top: calc(var(--heading-spacing) * 1.6);
+}
+.markdown-rendered :is(p, pre, table, ul, ol) + h4 {
+  margin-top: calc(var(--heading-spacing) * 1.3);
+}
+.markdown-rendered :is(p, pre, table, ul, ol) + h5 {
+  margin-top: calc(var(--heading-spacing) * 1.1);
+}
+
+/* ═══════════════════ 3. Inline & Block Elements ═══════════════════ */
+
+/* ---- 行内代码：systemFill 灰 chip + 正文色文字 ----
+   Apple 从不给行内代码上彩色，靠等宽字形 + 灰片承载「这是代码」，
+   彩字是 90 年代 IDE 的记忆。去色相后正文回到「黑字灰片」的绝对克制。 */
+:not(pre) > code,
+.markdown-source-view.mod-cm6 .cm-inline-code {
+  font-size: 0.9em;
+}
+/* 阅读态：圆角灰药丸 */
+:not(pre) > code {
+  border-radius: var(--jadeveil-radius-xs);
+  padding: 1px 4px; /* 观感修正（用户反馈 chip 虚胖）：v2 校准值 0 3px 1px 级别的紧凑内衬；本主题等宽字形比 Roboto Mono 宽，5px 横衬显笨重 */
+  margin-inline: 2px; /* chip 与两侧正文的呼吸距（用户反馈）：代码区已归零 text-autospace，中西空隙须由外距补 */
+  /* chip 折行兜底：万一断行（如连字符处），每段都收成闭合完整药丸，
+     而非切面开口的残片（用户反馈 table-caption 被劈两截） */
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+/* 表格内 chip 禁折：token 是原子，auto 表格布局会为 min-content 加宽列，
+   不存在正文长命令那种溢出风险（正文不禁折，仅靠 clone 兜底） */
+.markdown-rendered :is(th, td) code,
+.markdown-source-view.mod-cm6 :is(th, td) .cm-inline-code {
+  white-space: nowrap;
+}
+/* 编辑态（CM6 Live Preview）双态（2026-07-08 修订，用户反馈 LP chip 不精致）：
+   静息行给完整 chip（圆角+描边+横 padding，与阅读态一致）；活动行
+   （光标进入、反引号显形、span 裂段）退回无圆角无横距的无缝条，避免裂成
+   分段药丸——裂段伪影只在编辑当行的瞬间存在。 */
+.markdown-source-view.mod-cm6 .cm-inline-code {
+  border-radius: 0;
+  padding: 0.12em 0;
+}
+.markdown-source-view.mod-cm6 .cm-line:not(.cm-active) .cm-inline-code {
+  border-radius: 4px; /* v2 实测校准，与阅读态一致 */
+  padding: 1px 4px; /* 观感修正（用户反馈 chip 虚胖），与阅读态同步收紧 */
+  margin-inline: 2px; /* 与阅读态同步的两端呼吸距；活动行不加，避免光标进入时布局跳动叠加 */
+}
+body.theme-light .markdown-source-view.mod-cm6 .cm-line:not(.cm-active) .cm-inline-code {
+  border: 1px solid rgba(31, 34, 37, 0.07); /* 观感修正，与阅读态同步 */
+}
+body.theme-dark .markdown-source-view.mod-cm6 .cm-line:not(.cm-active) .cm-inline-code {
+  border: 1px solid rgba(244, 244, 244, 0.07); /* 观感修正，与阅读态同步 */
+}
+/* chip 定稿是「淡底 + 细框」而非「深底」：底色从 fill-chip(0.12) 减淡到
+   0.04–0.06，描边接管「这是代码」的轮廓职责。编辑态 .cm-inline-code 不加
+   边——per-span 描边会在光标进入时裂成分段药丸，维持纯淡底，双态不对称属
+   已知取舍。 */
+body.theme-light :not(pre) > code {
+  background-color: rgba(31, 34, 37, 0.05); /* 观感修正：真值 0.03 的描边存在感过强（用户反馈），填充 +0.02、描边 -0.03，还原「柔和灰面」观感 */
+  border: 1px solid rgba(31, 34, 37, 0.07); /* 观感修正，同上 */
+  border-radius: 4px; /* v2 白天实测校准，替代全局 --jadeveil-radius-xs(6px) */
+}
+body.theme-dark :not(pre) > code {
+  background-color: rgba(244, 244, 244, 0.05); /* 观感修正，与浅色同逻辑 */
+  border: 1px solid rgba(244, 244, 244, 0.07); /* 观感修正，同上 */
+  border-radius: 4px; /* v2 暗夜实测校准，替代全局 --jadeveil-radius-xs(6px) */
+}
+body.theme-light .markdown-source-view.mod-cm6 .cm-inline-code {
+  background-color: rgba(31, 34, 37, 0.05); /* 观感修正，与阅读态同步 */
+}
+body.theme-dark .markdown-source-view.mod-cm6 .cm-inline-code {
+  background-color: rgba(244, 244, 244, 0.03); /* v2 暗夜实测校准，与阅读态同步 */
+}
+:is(:not(pre) > code, .cm-inline-code) {
+  color: var(--text-normal);
+  font-weight: 500;
+}
+
+/* ---- 语法高亮调色板：framework 自持，低饱和 · 少色相 · operator 归灰 ----
+   主题原本从未定义 --code-*，全落到 Obsidian 霓虹默认（keyword 热粉 /
+   string 荧光绿 / operator 红）。这里补一套 Apple 化：饱和度砍半、
+   色相 7→5、运算符/标点不上色（Xcode 默认即如此，让代码轮廓安静、语义点睛）。 */
+/* 浅色板 v3.4 a11y 重校（外部评审实算：原 8 色中 7 色 <4.5:1 on #f6f5f0，
+   comment 仅 2.96）——整族压暗到 ≥4.5，明度对比关系不变 */
+body.theme-light {
+  --code-comment: rgba(60, 60, 60, 0.75); /* ≥4.7:1（合成算法间有 ±0.2 差异，取保险值） */
+  --code-keyword: #7d49b8;
+  --code-function: #1f5cc0;
+  --code-property: #0b746d;
+  --code-string: #24743a;
+  --code-value: #96590f;
+  --code-important: #96590f;
+  --code-tag: #ab4232;
+  --code-operator: rgba(60, 60, 60, 0.78);
+  --code-punctuation: rgba(60, 60, 60, 0.78);
+}
+body.theme-dark {
+  --code-comment: rgba(190, 196, 191, 0.62); /* v3.4 a11y：0.52 实算 3.62，提到 4.6 */
+  --code-keyword: #b9a3cf;
+  --code-function: #8daed8;
+  --code-property: #83bdb7;
+  --code-string: #91bb98;
+  --code-value: #d0aa7e;
+  --code-important: #d0aa7e;
+  --code-tag: #d58f84;
+  --code-operator: rgba(199, 202, 199, 0.72);
+  --code-punctuation: rgba(199, 202, 199, 0.72);
+}
+
+/* ---- 链接：accent 色，无常驻下划线，hover 才出线 ---- */
+.markdown-rendered a:not(.tag):not(.internal-link.is-unresolved),
+.markdown-source-view.mod-cm6 .cm-hmd-internal-link {
+  text-decoration: none;
+}
+.markdown-rendered a:not(.tag):hover,
+.markdown-source-view.mod-cm6 .cm-hmd-internal-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+/* 外部链接常驻下划线（v3.3 双态统一）：LP 原生外链本就常驻线、阅读态却
+   hover 才出线，两态打架（实拍确认）。外部性提示值得常驻，对齐 LP。 */
+.markdown-rendered a.external-link {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ---- kbd 键帽（v3.4，测试文档实锤裸样式）：实心浮起小键帽——
+   底 2px 边框模拟键帽厚度，surface-float 面与浮起胶囊同语言 ---- */
+.markdown-rendered kbd,
+.markdown-source-view.mod-cm6 kbd {
+  font-family: var(--font-monospace-theme);
+  font-size: 0.85em;
+  padding: 1px 6px 2px;
+  border-radius: 5px;
+  background-color: var(--jv-surface-float);
+  border: 1px solid var(--jv-border-hairline);
+  border-bottom-width: 2px;
+  color: var(--text-normal);
+}
+
+/* ---- 高亮：黄色玻璃感软色块 ----
+   .mod-cm6 mark 不能漏（外部评审实锤）：LP 里的 HTML <mark> 否则落回
+   UA 默认纯荧光黄 rgb(255,255,0)，玉化承诺在编辑态被击穿 */
+.markdown-rendered mark,
+.markdown-source-view.mod-cm6 mark,
+.markdown-source-view.mod-cm6 .cm-highlight {
+  background-color: var(--text-highlight-bg);
+  color: inherit;
+  padding: 0.05em 0.15em;
+  border-radius: 4px;
+}
+/* 高亮与文字的呼吸间距（用户反馈）：静息行加横向 padding + clone 换行分段；
+   活动行（== 标记显形、span 裂段）维持上面的窄距，避免段间空隙。 */
+.markdown-rendered mark,
+.markdown-source-view.mod-cm6 .cm-line:not(.cm-active) .cm-highlight {
+  padding: 0.08em 0.32em;
+  margin-inline: 2px; /* 高亮与两侧正文的呼吸距（用户反馈），与 chip 同值 */
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* ---- 粗体：更粗 + 更浓（CJK 无 Bold 字形，色深承载强调）---- */
+.markdown-rendered strong,
+.markdown-source-view.mod-cm6 .cm-strong {
+  font-weight: 700;
+  color: var(--jv-text-strong);
+}
+/* 守护：链接内的粗体保留链接色，不被强调色抢走 */
+.markdown-rendered a strong,
+.markdown-rendered a b,
+.markdown-source-view.mod-cm6 .cm-link .cm-strong,
+.markdown-source-view.mod-cm6 .cm-url .cm-strong {
+  color: inherit;
+}
+
+/* ---- 标签：胶囊拟玻璃 ---- */
+body {
+  --tag-size: 0.85em;
+  --tag-weight: 500;
+  --tag-radius: 999px;
+  --tag-border-width: 0;
+  --tag-padding-x: 0.6em;
+  --tag-padding-y: 0.15em;
+}
+
+/* ---- 引用块：无背景，左侧粗实心 ink 竖条，正文全浓度，不斜体（本主题签名式样①）----
+   左条收敛为 3px，保留明确引用层级但避免在浅色长文中形成黑色视觉墙；
+   条色从正文 ink 派生并降低不透明度。阅读态用
+   ::before 画条（border-left 无法圆角）；实时预览逐行渲染，保留 border-left
+   直条（多行拼不出单根条，直条已够）。 */
+.markdown-rendered blockquote {
+  background: transparent;
+  color: var(--text-normal);
+  border-left: none;
+  font-style: normal;
+  padding-left: 1.2em;
+  position: relative;
+}
+.markdown-rendered blockquote::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.18em;
+  bottom: 0.18em;
+  width: 3px;
+  border-radius: 2px; /* v2 暗夜实测校准：2px 小圆角，替代原 999px 胶囊 */
+  background: var(--blockquote-border-color);
+}
+/* 实时预览（CM6）：实测发现 Obsidian app.css 自己已用 ::before
+   画条（而非 border-left）——`.markdown-source-view.mod-cm6.is-live-preview
+   .HyperMD-quote::before { border-inline-start: var(--blockquote-border-
+   thickness) solid var(--blockquote-border-color); width:1px; ... }`，
+   4 类选择器（0-4-0），比本文件原先的 3 类选择器（0-3-0）特异性低一级，
+   完全压不过，之前的方角是这条 app.css 规则画的，不是简单 border-left。
+   本条改为同特异性（补上 .is-live-preview）+ 同文件晚于 app.css 加载，
+   逐属性覆盖 content/position/width/border-inline-start，换成与阅读态
+   同款「宽度即背景条」手法，才能带上 border-radius（border-inline-start
+   本身无法独立圆角）。
+   每个 .HyperMD-quote 是一条 cm-line（软换行不拆分元素，单段引用会渲染成
+   一根连续条；多段引用——每个 `>` 独立源码行——会各自出条，段落间出现
+   细小断点，属 CM6 逐行渲染架构的已知限制，非本次校准目标）。 */
+.markdown-source-view.mod-cm6 .HyperMD-quote {
+  background: transparent;
+  color: var(--text-normal);
+  border-left: none;
+  font-style: normal;
+  padding-left: 1.1em;
+  position: relative;
+}
+.markdown-source-view.mod-cm6.is-live-preview .HyperMD-quote::before,
+.markdown-source-view.mod-cm6 .HyperMD-quote::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  inset-inline-start: 0;
+  top: 0; /* 默认满行高——多行引用相邻 cm-line 的条无缝相接（run 首末行见下方收边规则） */
+  bottom: 0;
+  width: 3px;
+  border-inline-start: none; /* 清空 app.css 的方角描边，改由 background 画条 */
+  border-radius: 0; /* 中段行不圆角，圆角只落在 run 首末行（见下） */
+  background: var(--blockquote-border-color);
+}
+/* 多行引用条融合（用户反馈「竖条分段」病灶）：每个 `>` 源行是独立 cm-line、
+   各画各的条，带 inset+圆角就会出现逐行断点。改为条默认满行高无缝相接，
+   仅 run 首行收顶部 inset+上圆角、run 末行（:has 前瞻兄弟）收底部。
+   单行引用两条规则都命中，观感与原样一致。 */
+.markdown-source-view.mod-cm6 .HyperMD-quote:not(.HyperMD-quote + .HyperMD-quote)::before {
+  top: 0.18em;
+  border-top-left-radius: 2px;
+  border-top-right-radius: 2px;
+}
+.markdown-source-view.mod-cm6 .HyperMD-quote:not(:has(+ .HyperMD-quote))::before {
+  bottom: 0.18em;
+  border-bottom-left-radius: 2px;
+  border-bottom-right-radius: 2px;
+}
+/* 软换行对齐（用户反馈「第二行起前面空隙」病灶）：CM6 给引用行加内联
+   `text-indent:-33px; padding-inline-start:33px` 悬挂缩进，而隐藏的 `> `
+   格式符只占 15.6px——首行文字停在 15.6px、软换行停在 33px，差值即空隙。
+   非活动行：藏掉格式符 + !important 压平内联悬挂缩进（stylesheet !important
+   胜过非 important 内联），全部行对齐到 1.1em。活动行（光标所在）保留 CM
+   原生悬挂缩进以裸编辑 `> ` 源码，行为与其他格式符展开一致。 */
+.markdown-source-view.mod-cm6.is-live-preview .HyperMD-quote:not(.cm-active) {
+  text-indent: 0 !important;
+  padding-inline-start: 1.1em !important;
+}
+.markdown-source-view.mod-cm6.is-live-preview .HyperMD-quote:not(.cm-active) .cm-formatting-quote {
+  display: none;
+}
+
+/* ---- 代码块：拟玻璃卡——底色 + hairline 边 + 内侧镜面高光 ---- */
+.markdown-rendered pre {
+  border-radius: var(--jadeveil-radius-m);
+  padding: 1em 1.2em; /* 0.9em 1.1em→1em 1.2em：四边留白更舒展 */
+  line-height: var(--jv-lh-code);
+  background-color: var(--code-background);
+  /* 代码属于纸面内嵌内容，只保留极轻接触影，轮廓由单层 border 承担。 */
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.035);
+}
+/* v2 深浅实测校准：深浅两模式代码块均收窄圆角 + 加淡
+   描边，各自描边色按真值锁定（深 rgba(249,249,249,0.08) / 浅 rgba(26,28,30,0.08)），
+   基础规则的 --jadeveil-radius-m(12px) 仅作两者共同 fallback。 */
+body.theme-dark .markdown-rendered pre {
+  border-radius: 8px;
+  border: 1px solid var(--jv-border-code);
+}
+body.theme-dark .markdown-source-view.mod-cm6 .HyperMD-codeblock-begin-bg {
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+}
+body.theme-dark .markdown-source-view.mod-cm6 .HyperMD-codeblock-end-bg {
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+}
+body.theme-light .markdown-rendered pre {
+  border-radius: 8px;
+  border: 1px solid var(--jv-border-code); /* v2 白天实测校准 */
+}
+body.theme-light .markdown-source-view.mod-cm6 .HyperMD-codeblock-begin-bg {
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+}
+body.theme-light .markdown-source-view.mod-cm6 .HyperMD-codeblock-end-bg {
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+}
+/* 编辑器实时预览下的代码块背景条，与阅读视图观感一致 */
+.markdown-source-view.mod-cm6 .HyperMD-codeblock-bg {
+  background-color: var(--code-background);
+}
+/* readable-line-width 以 em 约束每一条 .cm-line。代码行切到较小的等宽字体后，
+   同一个 --file-line-width 会被再次缩窄；代码块应占满已计算好的正文容器。 */
+.markdown-source-view.mod-cm6.is-readable-line-width .HyperMD-codeblock {
+  max-width: 100%;
+}
+/* 实时预览代码块描边：逐行拼合（cm-line 架构无整块容器可描边）——
+   每行画左右边，首/末行补上下边。缺这组时 LP 代码块无边框融进纸底
+   （阅读态的 pre 边框管不到这里）。色值同 pre 的统一描边 token。
+   阴影不做：逐行元素无法承载整块投影，是 LP 已知限制。 */
+body.theme-light .markdown-source-view.mod-cm6 .HyperMD-codeblock {
+  border-left: 1px solid var(--jv-border-code);
+  border-right: 1px solid var(--jv-border-code);
+}
+body.theme-light .markdown-source-view.mod-cm6 .HyperMD-codeblock-begin {
+  border-top: 1px solid var(--jv-border-code);
+}
+body.theme-light .markdown-source-view.mod-cm6 .HyperMD-codeblock-end {
+  border-bottom: 1px solid var(--jv-border-code);
+}
+body.theme-dark .markdown-source-view.mod-cm6 .HyperMD-codeblock {
+  border-left: 1px solid var(--jv-border-code);
+  border-right: 1px solid var(--jv-border-code);
+}
+body.theme-dark .markdown-source-view.mod-cm6 .HyperMD-codeblock-begin {
+  border-top: 1px solid var(--jv-border-code);
+}
+body.theme-dark .markdown-source-view.mod-cm6 .HyperMD-codeblock-end {
+  border-bottom: 1px solid var(--jv-border-code);
+}
+/* LP 代码块逐行宿主无法形成自然整块投影，因此完全交给边框分层。 */
+.markdown-source-view.mod-cm6 .HyperMD-codeblock {
+  box-shadow: none;
+}
+.markdown-source-view.mod-cm6 .HyperMD-codeblock-begin {
+  box-shadow: none;
+  padding-bottom: 0.9em; /* 语言 flair 专属区：起始围栏行加高，首行长代码不再钻到标签底下（用户反馈） */
+}
+.markdown-source-view.mod-cm6 .HyperMD-codeblock-end {
+  box-shadow: none;
+}
+/* 编辑器代码块行高与阅读视图统一，不继承正文 1.85 的松散 */
+.markdown-source-view.mod-cm6 .HyperMD-codeblock {
+  line-height: var(--jv-lh-code);
+}
+/* 代码块内隐藏 CM 缩进参考线（.cm-indent::before 的 border-right，
+   oklch 墨 12%）：本主题代码块不画此线；且 CM 按 tab-size(4) 均匀画格，
+   2 空格缩进的代码线会切在字符中间（用户实测截图），位置天然不可靠。
+   只作用于代码块行，列表/引用的缩进线不受影响。 */
+.markdown-source-view.mod-cm6 .HyperMD-codeblock .cm-indent::before {
+  border-right: none;
+  border-inline-end: none;
+}
+.markdown-source-view.mod-cm6 .HyperMD-codeblock-begin-bg {
+  border-top-left-radius: var(--jadeveil-radius-m);
+  border-top-right-radius: var(--jadeveil-radius-m);
+}
+.markdown-source-view.mod-cm6 .HyperMD-codeblock-end-bg {
+  border-bottom-left-radius: var(--jadeveil-radius-m);
+  border-bottom-right-radius: var(--jadeveil-radius-m);
+}
+/* 行号 gutter：中性化，去默认竖线（编辑态长尾补齐，现无覆盖） */
+.markdown-source-view.mod-cm6 .cm-gutters {
+  background: transparent;
+  border-right: none;
+  color: var(--text-faint);
+}
+/* ---- 代码块行号 gutter（仅实时预览，CSS counter）：v2 实测校准。Obsidian 每行代码是独立 .cm-line.HyperMD-codeblock，
+   围栏首行带 -begin，末行带 -end；counter 在 begin 行重置，内部行（非
+   begin/end）递增并画右对齐数字 + 右分隔线。:not(.HyperMD-quote) 排除
+   callout/引用块内嵌代码——那些行会同时带 HyperMD-quote 类，不应出现行号。
+   阅读态（reading view）的 pre>code 是整块纯文本渲染，没有逐行 DOM 节点，
+   纯 CSS 无法实现逐行编号——已知限制，不在本节实现范围内。
+   默认关闭，由 Style Settings「代码块行号」class-toggle（jadeveil-code-linenos）
+   opt-in 开启（用户要求默认不显示）。 */
+body.jadeveil-code-linenos .markdown-source-view.mod-cm6 .HyperMD-codeblock-begin:not(.HyperMD-quote) {
+  counter-reset: jv-code-line;
+}
+body.jadeveil-code-linenos .markdown-source-view.mod-cm6
+  .HyperMD-codeblock:not(.HyperMD-codeblock-begin):not(.HyperMD-codeblock-end):not(.HyperMD-quote) {
+  counter-increment: jv-code-line;
+  padding-left: calc(16px + 37px); /* 保留原生 16px 文本内距 + 37px gutter 宽（v2 校准值） */
+}
+body.jadeveil-code-linenos .markdown-source-view.mod-cm6
+  .HyperMD-codeblock:not(.HyperMD-codeblock-begin):not(.HyperMD-codeblock-end):not(.HyperMD-quote)::before {
+  content: counter(jv-code-line);
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 37px; /* v2 实测校准：gutter 总宽 */
+  box-sizing: border-box;
+  padding: 0 8px 0 2px; /* v2 原值 0 10px 只给数字留 17px，两位数即折行竖排（真机截图实锤）；收窄到内容区 27px，tabular 14px 下三位数(999 行)以内不折 */
+  white-space: nowrap; /* 行号永不折行 */
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  font-size: 14px; /* v2 实测校准 */
+  font-variant-numeric: tabular-nums;
+  background-color: var(--code-background); /* 与代码芯同色 */
+}
+body.theme-light.jadeveil-code-linenos .markdown-source-view.mod-cm6
+  .HyperMD-codeblock:not(.HyperMD-codeblock-begin):not(.HyperMD-codeblock-end):not(.HyperMD-quote)::before {
+  color: rgba(31, 34, 37, 0.55); /* v3.4 a11y：0.3 仅 1.87:1，opt-in 功能开了就该能读 */
+  border-right: 1px solid #dddddd; /* v2 白天实测校准 */
+}
+body.theme-dark.jadeveil-code-linenos .markdown-source-view.mod-cm6
+  .HyperMD-codeblock:not(.HyperMD-codeblock-begin):not(.HyperMD-codeblock-end):not(.HyperMD-quote)::before {
+  color: rgba(244, 244, 244, 0.45); /* v3.4 a11y：0.3 仅 2.57:1 */
+  border-right: 1px solid var(--jv-border-code); /* v2 暗夜实测校准，与代码块外框同色 */
+}
+/* ---- 标签 chip：v3 青玉化——几何沿用 v2 校准值（r6、pad、begin/end
+   分段圆角），颜色从 v2 硬编码蓝改为 accent 派生，随滑杆全局换装。
+   浅色深玉字压淡玉底（≥5:1）；深色提亮文字（镜像推断逻辑不变）。 */
+body.theme-light {
+  --jv-tag-bg: hsla(var(--accent-h), 44%, 42%, 0.16);
+  --jv-tag-ink: hsl(var(--accent-h), 50%, 29%);
+}
+body.theme-dark {
+  --jv-tag-bg: hsla(var(--accent-h), 40%, 50%, 0.22);
+  --jv-tag-ink: hsl(var(--accent-h), 36%, 68%);
+}
+.markdown-rendered a.tag {
+  background-color: var(--jv-tag-bg);
+  color: var(--jv-tag-ink);
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 0.88em;
+  text-decoration: none;
+  font-weight: 500;
+}
+.markdown-source-view.mod-cm6 .cm-hashtag {
+  background-color: var(--jv-tag-bg);
+  color: var(--jv-tag-ink);
+  font-size: 0.88em;
+  font-weight: 500;
+}
+.markdown-source-view.mod-cm6 .cm-hashtag-begin {
+  border-radius: 6px 0 0 6px;
+  padding-left: 6px;
+}
+.markdown-source-view.mod-cm6 .cm-hashtag-end {
+  border-radius: 0 6px 6px 0;
+  padding-right: 6px;
+}
+
+/* 语言标签/复制按钮：常驻但极简，不推翻语法高亮色板（§3 已定），只动容器。
+   与代码内容的间距（用户反馈偏小）：flair/按钮内收到 8/10，pre 顶部留白加深 */
+.markdown-rendered .code-block-flair,
+.markdown-source-view.mod-cm6 .code-block-flair {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font-interface-theme);
+  top: 10px;
+  right: 12px;
+}
+.markdown-rendered pre {
+  padding-top: 1.7em; /* flair 专属区：top8 + 11px 标签 ≈23px，1.25em(20px) 仍会蹭到长首行，抬到 1.7em(27px) 彻底让位（用户反馈两轮校准） */
+}
+.copy-code-button {
+  color: var(--text-faint);
+  /* 图标居中（用户反馈图标偏移不居中）：按钮继承 pre 的行高/字号，
+     svg 走 baseline 对齐会上浮，flex 居中一劳永逸 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ---- 表格：单层圆角容器，去边框去阴影，靠白垫/深垫底色 + 内部网格线分层。
+   深浅两模式已按 v2 实测校准为全网格（横+竖线统一，浅色
+   #e6e7e7 / 深色 #444444，见下方分模式覆盖）。容器同时挂到三种渲染宿主——
+   阅读态 .el-table、旧版 .table-wrapper、实时预览 .cm-table-widget，避免
+   各模式框样不一。overflow:hidden 让圆角裁切内部行线。
+   v2 实测校准：容器无 border 无 box-shadow，
+   r8（原 r12 + 1px 半透明外框是「双层框」——外框线 + 内部网格线叠在一起，
+   定稿只用一层：容器靠纯色垫底跳出页面纸色，边界完全交给内部网格线）。 */
+.markdown-rendered .el-table,
+.markdown-rendered .table-wrapper,
+.markdown-source-view.mod-cm6 .cm-table-widget {
+  border: none;
+  border-radius: 0; /* v2 校准方角；r8 裁切方角外框会出圆角伪影（用户截图实锤） */
+  overflow: hidden;
+}
+/* 表格线：用清爽白/黑线，而非暖灰 ink 线——ink 线在表格里发闷。
+   令牌定义在容器上，th/td 作为后代自动继承。深浅两模式已按 实测
+   分别校准为不透明全网格线（深 #444444 / 浅 #e6e7e7）。容器底色：透明融纸
+   ——v2 曾直译的白垫只在同族白底上视觉无缝，照搬到
+   Obsidian 纸色上反而成突兀白块（用户实测反馈），故只留网格不铺底。 */
+/* 表格线令牌全局化（v3.4，测试文档实锤）：原先只定义在顶层表格容器
+   选择器上，callout / 嵌套上下文内的表格没有容器 wrapper，var() 落空
+   → 整表无网格线。挂到 body.theme-* 后任何上下文的表格都能解析。 */
+body.theme-dark {
+  --jv-border-code: rgba(249, 249, 249, 0.08); /* 代码类容器统一描边 */
+  --jv-tbl-line: #3e4340; /* v3.4 归族：#444 纯冷灰是全页唯一非玉系线色（评审实锤），换微绿玉灰 */
+  --jv-tbl-line-strong: #3e4340; /* 表头分界并入统一网格色 */
+  --jv-tbl-head-bg: transparent; /* 表头无填充带，靠 th 字重分区 */
+}
+body.theme-light {
+  --jv-border-code: rgba(26, 28, 30, 0.08); /* 代码类容器（pre/LP代码块/mermaid壳/行号线）统一描边，v3.4 token 化 */
+  --jv-tbl-line: #e7e6e0; /* v3 暖纸适配：横竖统一 */
+  --jv-tbl-line-strong: #e7e6e0;
+  --jv-tbl-head-bg: transparent;
+}
+.markdown-rendered :is(.el-table, .table-wrapper),
+.markdown-source-view.mod-cm6 .cm-table-widget {
+  background-color: transparent; /* 融纸，只靠网格线分区（用户反馈修正，替代 v2 白垫直译） */
+}
+.markdown-rendered table,
+.markdown-source-view.mod-cm6 .cm-table-widget table {
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--jv-tbl-line); /* v2 实测校准：有完整方角外框（header 行带 Top/Left，此前误判为无外框）；末行/末列的格线由此外框承担 */
+  /* 表格属于纸面内容，不使用浮层投影。 */
+  box-shadow: none;
+  width: 100%;
+}
+.markdown-rendered :is(th, td),
+.markdown-source-view.mod-cm6 :is(th, td) {
+  padding: 4px 16px 4px 10px; /* v2 实测校准：单元格内衬 4px 20px 4px 6px——垂直照抄，水平微调（左 6px 贴线太紧、右 20px 收到 16px），行高 32px 紧凑数据行 */
+  line-height: 1.5; /* v2 校准值 1.2 对 CJK 过挤，1.5 是可读下限；配 4px 垂直内衬得 32px 紧凑行 */
+  border: none;
+  border-bottom: 1px solid var(--jv-tbl-line); /* 基础横向行分隔；深浅两模式均全网格，竖线见下方统一覆盖（v2 深浅实测校准） */
+}
+.markdown-rendered tbody tr:last-child td,
+.markdown-source-view.mod-cm6 tbody tr:last-child td {
+  border-bottom: none; /* 末行不画，底边交给容器外框 */
+}
+/* 表头：无填充带，靠 th 字重分区（v2 深浅实测校准），
+   替代原「600 + 软填充带」设计 */
+.markdown-rendered th,
+.markdown-source-view.mod-cm6 th {
+  font-weight: 700;
+  border-bottom: 1px solid var(--jv-tbl-line-strong);
+  background-color: var(--jv-tbl-head-bg);
+}
+/* 全网格竖线（v2 深浅实测校准）：每格右侧描边，
+   末列交给容器右边框，不重复画线。 */
+.markdown-rendered :is(th, td),
+.markdown-source-view.mod-cm6 :is(th, td) {
+  border-right: 1px solid var(--jv-tbl-line);
+}
+.markdown-rendered tr :is(th, td):last-child,
+.markdown-source-view.mod-cm6 tr :is(th, td):last-child {
+  border-right: none;
+}
+.markdown-rendered tbody tr:hover,
+.markdown-source-view.mod-cm6 tbody tr:hover {
+  background-color: var(--jv-fill-hover); /* 去 accent，中性 hover */
+}
+
+/* ---- 分割线 ---- */
+.markdown-rendered hr,
+.markdown-source-view.mod-cm6 .cm-hr {
+  /* 本组 5 个 !important 对抗 app.css 的 hr 多形态样式（border/height/
+     background 各写法不一），一次压平（台账内，v3.4 补注） */
+  border: none !important;
+  border-top: 1px solid var(--jv-border-hairline) !important;
+  height: 0 !important;
+  background: none !important;
+  margin: 2.5em 0 !important;
+}
+
+/* ---- 图片：基础尺寸约束（防溢出，不含装裱） ---- */
+.markdown-rendered img,
+.markdown-source-view.mod-cm6 img {
+  max-width: 100%;
+}
+
+/* ---- 嵌入图装裱：圆角 + faint 描边 + 柔和弥散影（装裱式）----
+   faint 描边是关键：浅色下黑底图的「悬崖边缘」被中性细框收住。收窄到
+   .image-embed img（而非裸 img），避免波及 CM6 每行内的装饰性 <img>
+   （dev:dom 验证过：非嵌入图的 img 都在 .cm-line 内，src 为空，不应装裱）。 */
+.markdown-rendered .image-embed img,
+.markdown-source-view.mod-cm6 .image-embed img {
+  border-radius: var(--jadeveil-radius-m);
+  border: 1px solid var(--jv-border-faint);
+}
+body.theme-light :is(.markdown-rendered .image-embed img, .markdown-source-view.mod-cm6 .image-embed img) {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
+}
+body.theme-dark :is(.markdown-rendered .image-embed img, .markdown-source-view.mod-cm6 .image-embed img) {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+/* ---- image-mat 装裱开关（Style Settings 新增，默认 off）：padding 在
+   img 自身撑出一圈 surface-float 底的「画框 mat」——黑底图从「黑洞」变
+   「装裱的图」，透明底导出图（Excalidraw 常见）在深色纸上黑线不可读的
+   问题同时被 mat 的实底解决。默认不开：会给照片也加框（相框感）。 */
+body.jadeveil-image-mat :is(.markdown-rendered, .markdown-source-view.mod-cm6) .image-embed img {
+  background: var(--jv-surface-float);
+  padding: 8px;
+  border: 1px solid var(--jv-border-faint);
+  border-radius: var(--jadeveil-radius-m);
+}
+
+/* ---- 嵌入笔记：拟玻璃卡（哑光化），干掉默认左侧粗条 ---- */
+.markdown-rendered .markdown-embed {
+  border-left: none;
+  border: 1px solid var(--jv-border-faint);
+  border-radius: var(--jadeveil-radius-m);
+  background-color: var(--background-primary-alt);
+  box-shadow: var(--jv-shadow-1);
+  padding: 0.2em 1em;
+}
+
+/* ---- checkbox：完成任务弱化（v2 实测校准） ---- */
+.markdown-rendered .task-list-item.is-checked,
+.markdown-source-view.mod-cm6 .HyperMD-task-line[data-task]:not([data-task=" "]) span.cm-list-1 {
+  color: var(--checklist-done-color);
+  text-decoration: line-through;
+  text-decoration-color: rgb(109, 111, 113); /* v2 实测校准：划线比文字实一档 */
+}
+/* 未勾选环 1.5px：border 实现（等效 inset shadow） */
+input[type="checkbox"].task-list-item-checkbox,
+.markdown-source-view.mod-cm6 .task-list-item-checkbox {
+  border-width: 1.5px;
+}
+
+/* ---- 自定义任务状态（v3.4）：[-] 取消 / [>] 顺延 / [?] 疑问 ----
+   Obsidian 把任意非空格 data-task 都渲染成 checked——三种状态全显示为
+   青玉绿勾在语义上是错的（[-] 取消 ≠ 完成，测试文档实锤）。按状态重绘
+   底色 + 用 mask 换 glyph（app.css 本就用 input::after + mask 画勾，
+   同机制覆盖可靠）：取消=灰底横杠+删除线，顺延=琥珀底箭头，疑问=
+   藕紫底问号（后两者是「未了结」状态，不加删除线）。 */
+.task-list-item[data-task="-"] > input.task-list-item-checkbox:checked,
+input[data-task="-"].task-list-item-checkbox:checked {
+  background-color: rgba(var(--jv-ink-line), 0.55);
+  border-color: transparent;
+}
+.task-list-item[data-task="-"] > input.task-list-item-checkbox:checked::after,
+input[data-task="-"].task-list-item-checkbox:checked::after {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M5 12h14'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M5 12h14'/%3E%3C/svg%3E");
+}
+.task-list-item[data-task=">"] > input.task-list-item-checkbox:checked,
+input[data-task=">"].task-list-item-checkbox:checked {
+  background-color: #c07f2e; /* 琥珀：与 warning callout 同族 */
+  border-color: transparent;
+}
+.task-list-item[data-task=">"] > input.task-list-item-checkbox:checked::after,
+input[data-task=">"].task-list-item-checkbox:checked::after {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14'/%3E%3Cpath d='m12 5 7 7-7 7'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14'/%3E%3Cpath d='m12 5 7 7-7 7'/%3E%3C/svg%3E");
+}
+.task-list-item[data-task="?"] > input.task-list-item-checkbox:checked,
+input[data-task="?"].task-list-item-checkbox:checked {
+  background-color: #8f64aa; /* 藕紫：与 question callout 同族 */
+  border-color: transparent;
+}
+.task-list-item[data-task="?"] > input.task-list-item-checkbox:checked::after,
+input[data-task="?"].task-list-item-checkbox:checked::after {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3'/%3E%3Cpath d='M12 17h.01'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3'/%3E%3Cpath d='M12 17h.01'/%3E%3C/svg%3E");
+}
+/* 深色两选择器都必须带 theme-dark 前缀（评审实锤回归：此前第二形态漏前缀，
+   与浅色规则同特异性且更晚，浅色 LP 泄漏成深色琥珀/藕紫） */
+body.theme-dark .task-list-item[data-task=">"] > input.task-list-item-checkbox:checked,
+body.theme-dark input[data-task=">"].task-list-item-checkbox:checked {
+  background-color: #d9a05c;
+}
+body.theme-dark .task-list-item[data-task="?"] > input.task-list-item-checkbox:checked,
+body.theme-dark input[data-task="?"].task-list-item-checkbox:checked {
+  background-color: #b492cd;
+}
+/* 顺延/疑问是「未了结」态：文字不删除线、不退灰（压过上方 is-checked 通则） */
+.markdown-rendered .task-list-item.is-checked:is([data-task=">"], [data-task="?"]),
+.markdown-source-view.mod-cm6 .HyperMD-task-line:is([data-task=">"], [data-task="?"]) span.cm-list-1 {
+  color: var(--text-normal);
+  text-decoration: none;
+}
+
+/* ═══════════════════════════ 3b. Mermaid ═══════════════════════════
+   中性化，从零建：让内联 Mermaid 看起来是主题原生部件——中性节点卡浮在
+   纸上，而非默认紫彩色板。flowchart + sequence
+   覆盖本 vault 95% 用例；pie/gantt/class 长尾留待实际出现再补。
+
+   !important 说明（本节唯一允许新增 !important 的地方，仅限 .mermaid
+   内部选择器）：Mermaid 把默认色板写进渲染出的 SVG 自带 <style id="#哈希">
+   标签，用 id 限定选择器（如 #哈希 .node rect{fill:...}）——id 的特异性
+   高于任意数量的 class 链，本节选择器无论叠多少层 class 都赢不了，必须
+   !important 才能压过（对抗 mermaid 内联 style）。已计入 lint-baseline.json。
+   同理，svg 上的 max-width !important 用来覆盖 mermaid 内联的 max-width=
+   自然宽——v2 实测校准后二者语义一致（原生
+   viewBox 尺寸渲染），!important 只在原生尺寸超出卡宽时兜底等比缩小，
+   属本节 layout 类的唯一 !important 例外。
+
+   用户 classDef 自定义色不拦截：`class 节点 自定义名` 语法会给节点生成
+   内联 style="fill:... !important" 属性——inline style 的特异性天然高于
+   任何 stylesheet 选择器（即便同为 !important），本节规则打不到、也不该
+   打到这些节点，与 callout 彩底同一逻辑：作者显式语义彩色永远赢外壳中性化。 */
+/* 图作为「浅色大图版」（v2 实测定论）：本 vault 的 classDef 图节点
+   带内联浅色 fill（如 #dbeafe 浅蓝 + 深蓝字），是「按浅底作图」——浅色模式
+   用浅图版（本块），深色模式改用深图版（见下方 .theme-dark 块），classDef
+   彩色节点两模式均保作者原色。本块同时就近把中性化令牌全锁成浅值：无
+   classDef 的中性图也渲染成浅色插图，与彩色图统一。
+   v2 实测校准：图按 viewBox 原生尺寸渲染
+   （不放大撑满卡宽），容器左对齐，替代原「填满卡宽居中」——见下方
+   svg 规则与本块 justify-content。 */
+.markdown-rendered .mermaid {
+  padding: 12px 16px; /* v2 实测内衬 8px 12px，略加余量；原 1.6em/1.8em 虚胖（用户反馈） */
+  border-radius: 6px; /* v2 深浅实测统一校准，替代原 --jadeveil-radius-l(20px) */
+  margin: 1.5em 0;
+  display: flex;
+  justify-content: flex-start; /* v2 实测校准：左对齐，替代原 center 居中 */
+  overflow: hidden;
+  background: #f6f5f1; /* v3.3 暖纸适配：v2 校准值 #f7f7f7 在象牙纸上偏冷，与代码块同族黄轴对齐 */
+  border: 1px solid var(--jv-border-code);
+  /* v2 白天实测校准：与代码块同款向下微阴影（贴边环层已随代码块一并移除，描边独担轮廓），
+     替代泛用 --jv-shadow-2（深色未实测沿用同串） */
+  box-shadow:
+    0 1px 1px rgba(0, 0, 0, 0.04),
+    0 3px 3px rgba(0, 0, 0, 0.04),
+    0 6px 4px rgba(0, 0, 0, 0.02),
+    0 11px 4px rgba(0, 0, 0, 0.01);
+  /* 中性化令牌锁浅：本节 20 条子规则的 var() 就近取这些值 → 浅色插图 */
+  --jv-surface-float: #ffffff;
+  --jv-surface-recessed: #f1f0ea; /* v3.3 暖纸适配：cluster 面黄轴对齐 */
+  --jv-surface-paper: #f6f5f1; /* edgeLabel 挖空随壳同步 */
+  --text-normal: #1d1d1f;
+  --text-muted: rgba(60, 60, 60, 0.72); /* Fable: 0.6 在浅卡上 edgeLabel 发虚，0.72≈3.9:1 更实 */
+  --jv-border-strong: rgba(60, 60, 60, 0.3);
+  --jv-border-faint: #d6d4cd; /* v3.3 暖纸适配：cluster 描边黄轴对齐 */
+}
+/* 实时预览外距归零（用户反馈「hover 显出上下间隙」病灶）：.mermaid 的
+   margin 落在可 hover 的 .cm-embed-block 内部，hover 高亮会显出这 24px
+   空腔。归零即可——LP 的块间距本就由源码空行（空 cm-line）提供；embed
+   block 自身不能补 margin（app.css 对 .cm-content > * 有 margin:0
+   !important，为 CM6 行高测量而设，不去硬顶）。阅读态维持原 margin。 */
+.markdown-source-view.mod-cm6 .cm-embed-block .mermaid {
+  margin: 0;
+}
+.markdown-rendered .mermaid svg {
+  font-family: var(--font-interface-theme);
+  width: auto; /* v2 实测校准：按 viewBox 原生尺寸渲染，替代原 100% 放大填满 */
+  height: auto;
+  max-width: 100% !important; /* 保留：仅当原生尺寸超出卡宽时兜底等比缩小，对抗 mermaid 内联 max-width */
+  background: transparent !important; /* mermaid 把 appearance 底色烧进 svg 自带 <style>(#id{background:…}),压透明,底色全权交给 .mermaid 卡片(对抗 mermaid 内联 style) */
+}
+/* 节点面 + 描边：白/深灰卡 + 极淡墨线（.node path 覆盖圆角/体育场等非 rect 形状） */
+.markdown-rendered .mermaid :is(.node rect, .node polygon, .node circle, .node ellipse, .node path) {
+  fill: var(--jv-surface-float) !important; /* 对抗 mermaid 内联 style */
+  stroke: var(--jv-border-strong) !important; /* 对抗 mermaid 内联 style */
+  stroke-width: 1px !important; /* 对抗 mermaid 内联 style */
+}
+.markdown-rendered .mermaid .nodeLabel {
+  color: var(--text-normal) !important; /* 对抗 mermaid 内联 style */
+}
+/* 节点软角：pastel 节点应为软角卡，mermaid rect 默认 rx=0 是浅卡里
+   唯一的方角异类。classDef 只内联 fill/stroke 不写 rx，几何属性可干净覆盖。 */
+.markdown-rendered .mermaid .node rect {
+  rx: 6px !important;
+}
+/* 连线 + 箭头：与节点描边同墨，连线不抢戏 */
+.markdown-rendered .mermaid :is(.edgePath .path, .flowchart-link) {
+  stroke: var(--jv-border-strong) !important; /* 对抗 mermaid 内联 style */
+}
+.markdown-rendered .mermaid :is(.arrowheadPath, marker path) {
+  fill: var(--jv-border-strong) !important; /* 对抗 mermaid 内联 style */
+  stroke: none !important; /* 对抗 mermaid 内联 style */
+}
+/* 线上标签：把线「打断」的挖空手法——rect/p 是 Mermaid 实际承载底色的
+   子元素（比裸 .edgeLabel 更具体，同步覆盖才不会被内部规则吃回去） */
+.markdown-rendered .mermaid :is(.edgeLabel, .edgeLabel p, .edgeLabel rect) {
+  background-color: var(--jv-surface-paper) !important; /* 对抗 mermaid 内联 style */
+  fill: var(--jv-surface-paper) !important; /* 对抗 mermaid 内联 style */
+}
+.markdown-rendered .mermaid .edgeLabel {
+  color: var(--text-muted) !important; /* 对抗 mermaid 内联 style */
+}
+/* 子图/分组：凹陷区当分组底 */
+.markdown-rendered .mermaid .cluster rect {
+  fill: var(--jv-surface-recessed) !important; /* 对抗 mermaid 内联 style */
+  stroke: var(--jv-border-faint) !important; /* 对抗 mermaid 内联 style */
+  rx: 12px !important; /* 对抗 mermaid 内联 style */
+}
+.markdown-rendered .mermaid .cluster-label .nodeLabel {
+  color: var(--text-muted) !important; /* 对抗 mermaid 内联 style */
+}
+/* 时序图：角色框 / 消息线 / note（去默认黄，归中性） */
+.markdown-rendered .mermaid .actor {
+  fill: var(--jv-surface-float) !important; /* 对抗 mermaid 内联 style */
+  stroke: var(--jv-border-strong) !important; /* 对抗 mermaid 内联 style */
+}
+.markdown-rendered .mermaid text.actor {
+  fill: var(--text-normal) !important; /* 对抗 mermaid 内联 style */
+}
+.markdown-rendered .mermaid :is(.messageLine0, .messageLine1) {
+  stroke: var(--jv-border-strong) !important; /* 对抗 mermaid 内联 style */
+}
+.markdown-rendered .mermaid .note {
+  fill: var(--jv-surface-recessed) !important; /* 对抗 mermaid 内联 style */
+  stroke: var(--jv-border-faint) !important; /* 对抗 mermaid 内联 style */
+}
+
+/* 中和 Obsidian 深色模式对 mermaid 的整体反相：核心 app.css 带一条
+   `.theme-dark .mermaid > svg { filter: invert(100%) hue-rotate(180deg) saturate(1.25) }`，
+   在 theme-dark 下把整张图翻相。本主题两模式都用浅色图版（见上「浅色大图版」注），
+   浅卡+彩节点是按浅底作图的——反相会把浅粉/浅蓝/浅黄节点整体翻成暗红/暗蓝/暗黄，
+   浅卡翻成近黑，正是设计要避免的。必须显式关掉（!important + 同特异性，主题晚于
+   app.css 加载故胜）。缺这条时深色 appearance 下所有 mermaid 会整体发黑。 */
+.theme-dark .mermaid > svg {
+  filter: none !important;
+}
+
+/* 深浅双模式（v2 定稿）：浅色模式浅图版（见上），深色模式深图版（本块）——
+   不靠反相，直接换一套深色中性令牌。classDef 彩色节点带内联 !important，
+   两模式都保持作者原色：浅彩 chip 落在深卡上，即深色图版定稿。
+   本块深色值已按 v2 暗夜实测校准：图版壳与代码块同色
+   同 border，cluster 面/描边对齐真实 computed style；--text-muted 沿用旧值
+   弃用曾参考的 #565f89（cluster 标题字），设计决定：对比度不足。 */
+.theme-dark .markdown-rendered .mermaid {
+  /* v3.3 玉化：v2 暗夜校准值是 Tokyo Night 蓝紫系（#24283b/#1a1b26），
+     在青玉石墨语境里是异族材质（用户实拍确认蓝紫岛），收编进墨玉中性色 */
+  background: #262927; /* 与 base-30 同族 */
+  border-color: var(--jv-border-code);
+  --jv-surface-float: #2c2f2d; /* 石墨玉节点面 */
+  --jv-surface-recessed: #1e201f; /* cluster 面 */
+  --jv-surface-paper: #262927; /* edgeLabel 挖空须与图版同色 */
+  --text-normal: rgba(255, 255, 255, 0.92);
+  --text-muted: rgba(255, 255, 255, 0.68); /* 弃用 #565f89：cluster 标题字对比度不足，设计决定保留 */
+  --jv-border-strong: rgba(255, 255, 255, 0.3);
+  --jv-border-faint: rgb(58, 62, 59); /* v3.3 玉化：cluster 描边随石墨玉 */
+}
+
+/* 浅色图版已成默认（见上），原 jadeveil-mermaid-mat 开关随之退役。 */
+
+/* ═══════════════════════════ 4. Callouts ═══════════════════════════ */
+/* v3.3 玉化色板映射到 --callout-color（R, G, B 三元组格式，
+   配合 rgba(var(--callout-color), alpha) 使用）。原 Apple 系统全彩
+   在青玉低饱和语境里过艳——note 蓝与青玉 accent 直接冲突（用户实拍
+   确认），整族按「玉化公式」重校：保留语义色相、饱和度压至 40–55%、
+   浅色取深值保题字可读（≈4.5:1）、深色提亮两档。别名与官方
+   canonical type 一起显式列出，不依赖 Obsidian 内部别名解析。 */
+
+/* v3.4 双评审合并修订：①题字对比——浅色触点全族压暗到 ≥5:1（原值
+   自称 ≈4.5 实算 2.9–4.3，琥珀最惨）；②语义可辨——note/info/todo 原共享
+   一色、tip/abstract 肉眼不可分（色相坍塌），在低饱和玉带内做 15–25°
+   色相步进：note 166 / todo 178 / tip 150 / success 130 / info 205 /
+   abstract 218，扫读时语义信息恢复。 */
+.theme-light .callout[data-callout="note"] {
+  --callout-color: 32, 101, 84; /* 青玉 166° */
+}
+.theme-dark .callout[data-callout="note"] {
+  --callout-color: 112, 183, 161;
+}
+.theme-light .callout[data-callout="info"] {
+  --callout-color: 42, 88, 111; /* 黛蓝青 205° */
+}
+.theme-dark .callout[data-callout="info"] {
+  --callout-color: 126, 173, 206;
+}
+.theme-light .callout[data-callout="todo"] {
+  --callout-color: 34, 103, 99; /* 青碧 178° */
+}
+.theme-dark .callout[data-callout="todo"] {
+  --callout-color: 119, 197, 197;
+}
+
+.theme-light .callout[data-callout="tip"],
+.theme-light .callout[data-callout="hint"] {
+  --callout-color: 38, 100, 69; /* 绿玉 150° */
+}
+.theme-dark .callout[data-callout="tip"],
+.theme-dark .callout[data-callout="hint"] {
+  --callout-color: 121, 195, 158;
+}
+
+.theme-light .callout[data-callout="success"],
+.theme-light .callout[data-callout="check"] {
+  --callout-color: 41, 101, 51; /* 苔绿 130° */
+}
+.theme-dark .callout[data-callout="success"],
+.theme-dark .callout[data-callout="check"] {
+  --callout-color: 128, 198, 141;
+}
+
+.theme-light .callout[data-callout="warning"],
+.theme-light .callout[data-callout="caution"] {
+  --callout-color: 138, 85, 16; /* 琥珀（压暗保题字 5.4:1） */
+}
+.theme-dark .callout[data-callout="warning"],
+.theme-dark .callout[data-callout="caution"] {
+  --callout-color: 224, 168, 92;
+}
+
+.theme-light .callout[data-callout="danger"],
+.theme-light .callout[data-callout="error"],
+.theme-light .callout[data-callout="bug"],
+.theme-light .callout[data-callout="failure"],
+.theme-light .callout[data-callout="missing"] {
+  --callout-color: 168, 61, 47; /* 赭红（压暗保题字 5.3:1） */
+}
+.theme-dark .callout[data-callout="danger"],
+.theme-dark .callout[data-callout="error"],
+.theme-dark .callout[data-callout="bug"],
+.theme-dark .callout[data-callout="failure"],
+.theme-dark .callout[data-callout="missing"] {
+  --callout-color: 226, 126, 114;
+}
+
+.theme-light .callout[data-callout="question"],
+.theme-light .callout[data-callout="help"] {
+  --callout-color: 116, 70, 143; /* 藕紫（压暗保题字 5.9:1） */
+}
+.theme-dark .callout[data-callout="question"],
+.theme-dark .callout[data-callout="help"] {
+  --callout-color: 180, 146, 205;
+}
+
+.theme-light .callout[data-callout="example"] {
+  --callout-color: 85, 82, 158; /* 黛蓝（压暗保题字 5.8:1） */
+}
+.theme-dark .callout[data-callout="example"] {
+  --callout-color: 152, 150, 212;
+}
+
+.theme-light .callout[data-callout="quote"],
+.theme-light .callout[data-callout="cite"] {
+  --callout-color: 99, 100, 95; /* 暖灰（压暗保题字 5.2:1，原 2.98） */
+}
+.theme-dark .callout[data-callout="quote"],
+.theme-dark .callout[data-callout="cite"] {
+  --callout-color: 142, 143, 138;
+}
+
+.theme-light .callout[data-callout="abstract"],
+.theme-light .callout[data-callout="summary"] {
+  --callout-color: 50, 75, 118; /* 黛青蓝 218°（与 info 205° 拉开） */
+}
+.theme-dark .callout[data-callout="abstract"],
+.theme-dark .callout[data-callout="summary"] {
+  --callout-color: 144, 169, 213;
+}
+
+/* ---- 通用 callout 外观：拟玻璃卡（渐变 + 内侧高光，零 backdrop-filter） ---- */
+.callout {
+  border-radius: var(--jadeveil-radius-m);
+  border: 1px solid rgba(var(--callout-color), 0.28);
+  background: linear-gradient(
+    180deg,
+    rgba(var(--callout-color), 0.1),
+    rgba(var(--callout-color), 0.05)
+  );
+  box-shadow: inset 0 1px 0 var(--jv-glass-specular);
+  padding: 1em 1.2em; /* 0.85em 1.1em→1em 1.2em：与代码块同律 */
+}
+.callout-title {
+  font-weight: 600;
+  color: rgb(var(--callout-color));
+}
+.callout-icon {
+  color: rgb(var(--callout-color));
+}
+.callout-content {
+  color: var(--text-normal);
+}
+
+/* ═══════════════════════════ 5. Chrome Glass ═══════════════════════════
+   级联结构：「退化态为基底、玻璃态为高特异性覆盖」。
+
+   Obsidian app.css 自带
+     .is-translucent:not(.is-fullscreen) .workspace-split { background-color: transparent !important }
+   等规则（0-4-0 且带 !important，实测确认），特异性无论多高都压不过。
+   因此：
+   - 基底规则无条件写不透明色（覆盖非透明窗口与全屏两种情况，
+     全屏时 app.css 的 :not(.is-fullscreen) 规则自动失效，落回基底，
+     与 Obsidian 原生行为一致）
+   - 玻璃覆盖统一用 body.is-translucent:not(.is-fullscreen):not(.jadeveil-glass-off)
+     前缀，且 background-color 必须同带 !important（0-5-1 !important
+     > 0-4-0 !important）。仅 background-color 需要，backdrop-filter 无人争夺 */
+
+/* ---- 基底：不透明退化态（无条件） ---- */
+.workspace-split.mod-left-split,
+.workspace-split.mod-right-split,
+.workspace-ribbon.side-dock-ribbon {
+  --background-secondary: transparent;
+  background-color: var(--jv-surface-chrome);
+}
+
+/* 原生标题栏会给 Ribbon 顶部拖拽区和左右侧栏开关各自铺一块背景。
+   在侧栏使用独立 chrome 表面时，这两块默认背景会暴露成矩形补丁；让它们
+   继承所在表面，只由图标自身的 hover pill 提供交互反馈。 */
+.workspace-ribbon.side-dock-ribbon::before {
+  /* app.css 为 macOS 拖拽层单独铺色；必须覆盖才能与 Ribbon 同面。 */
+  background-color: var(--jv-surface-chrome) !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+.workspace-ribbon.side-dock-ribbon {
+  border-right: 1px solid var(--jv-border-seam);
+}
+.sidebar-toggle-button,
+.sidebar-toggle-button.mod-left,
+.sidebar-toggle-button.mod-right {
+  background-color: transparent;
+}
+body.mod-macos.is-hidden-frameless:not(.is-popout-window)
+  .sidebar-toggle-button.mod-right {
+  background-color: transparent;
+}
+.sidebar-toggle-button .clickable-icon {
+  background-color: transparent;
+  border-radius: var(--jadeveil-radius-s);
+}
+.sidebar-toggle-button .clickable-icon:hover {
+  background-color: var(--jv-glass-control-hover);
+  border: 0;
+  box-shadow: none;
+}
+/* 侧栏↔正文分隔线：v2 实测校准——侧栏不画
+   右边框分隔线，分层完全交给玻璃 tint / chrome 与 paper 的色调差，不画线。
+   原 --jv-border-seam hairline 移除。 */
+
+/* ---- 玻璃覆盖：左右侧栏 Chrome 玻璃（tint + blur） ---- */
+body.is-translucent:not(.is-fullscreen):not(.jadeveil-glass-off)
+  .workspace-split.mod-left-split,
+body.is-translucent:not(.is-fullscreen):not(.jadeveil-glass-off)
+  .workspace-split.mod-right-split {
+  background-color: var(--jv-glass-chrome-tint) !important;
+  backdrop-filter: blur(var(--jadeveil-blur-chrome)) saturate(var(--jadeveil-saturate-chrome));
+  -webkit-backdrop-filter: blur(var(--jadeveil-blur-chrome))
+    saturate(var(--jadeveil-saturate-chrome));
+}
+body.is-translucent:not(.is-fullscreen):not(.jadeveil-glass-off)
+  .workspace-split.mod-left-split {
+  background-image: none;
+  box-shadow: inset 0 1px 0 var(--jv-glass-specular);
+}
+body.is-translucent:not(.is-fullscreen):not(.jadeveil-glass-off)
+  .workspace-split.mod-right-split {
+  background-image: none;
+  box-shadow: inset 0 1px 0 var(--jv-glass-specular);
+}
+
+/* Ribbon 与侧栏同玻璃（v3）：v2 曾用实体 chrome（当年只给 tint 不给 blur，
+   桌面以锐利斜块穿透）；玻璃清透化后实体 Ribbon 反而与半透明侧栏形成
+   材质断层（用户截图实锤），改为同 tint 同 blur 融成一块玉幕。 */
+body.is-translucent:not(.is-fullscreen):not(.jadeveil-glass-off)
+  .workspace-ribbon.side-dock-ribbon {
+  background-color: var(--jv-glass-chrome-tint) !important;
+  backdrop-filter: blur(var(--jadeveil-blur-chrome)) saturate(var(--jadeveil-saturate-chrome));
+  -webkit-backdrop-filter: blur(var(--jadeveil-blur-chrome))
+    saturate(var(--jadeveil-saturate-chrome));
+}
+/* 红绿灯角落补洞（v3，用户两轮截图实锤）：app.css 给 Ribbon margin-top:40，
+   窗口左上角 44×40 是无人绘制的真空——只剩未模糊的 veil+桌面，成异色亮
+   补丁。且给 ::before 铺玻璃走不通：ribbon 自身的 backdrop-filter 使其成为
+   absolute 后代的 containing block，::before 的 top:0 落到 y40 而非视口顶。
+   正解：margin 换 padding（40+原生 8=48），Ribbon 盒子长到窗口顶、自身玻璃
+   盖住角落；::before 退回纯拖拽区职责（app-region:drag），不再参与绘制——
+   app.css 在 translucent 态本就把它透明化，顺势而为不再对抗。 */
+body.mod-macos.is-hidden-frameless:not(.is-fullscreen):not(.is-popout-window)
+  .workspace-ribbon.side-dock-ribbon.mod-left {
+  margin-top: 0;
+  padding-top: 48px;
+}
+
+/* 文件树：hover / active 胶囊 */
+.nav-file-title,
+.nav-folder-title {
+  border-radius: var(--jadeveil-radius-s);
+  border: 0;
+  transition: var(--jadeveil-transition);
+}
+/* v2 hover 实测校准：只加药丸底，文字
+   色/字重完全不碰——三态字重通过 §5b 的 --nav-item-weight-* 变量锁定，
+   hover 规则里不直接声明 color/font-weight。
+   教训（2026-07-08）：曾写 color: var(--nav-item-color-hover) 并在 body
+   回写别名，但本版 Obsidian 根本未定义 --nav-item-* 变量族，var() 落空
+   → color 失效回退为继承的容器灰，文件夹 hover 反而「变细变淡」。
+   深色药丸为镜像推断，未实测。 */
+body.theme-light {
+  --nav-item-background-hover: rgba(26, 28, 30, 0.04); /* v2 hover 实测校准 */
+}
+body.theme-dark {
+  --nav-item-background-hover: rgba(244, 244, 244, 0.05); /* 深色为镜像推断，未实测 */
+}
+.nav-file-title:hover,
+.nav-folder-title:hover {
+  background-color: var(--jv-glass-control-hover);
+  box-shadow: none;
+}
+/* 选中文件 = 中性灰 pill + 文字加深（去 accent 签名②）。文字从
+   muted 升到 normal 承担「被选中」的第二信号——靠深浅而非颜色。
+   双选择器 + !important 压过 app.css 的白 0.06 淡洗，台账条目不变（改值不改新增）。
+   选中态底色改用 v2 实测值直写，不复用全局
+   --jv-fill-active（该 token 同时驱动菜单/tab 等其他选中态，直写避免
+   连带改变那些场景）。 */
+.nav-files-container :is(.nav-file-title.is-active, .tree-item-self.is-active) {
+  color: var(--text-normal) !important;
+}
+body.theme-light .nav-files-container :is(.nav-file-title.is-active, .tree-item-self.is-active) {
+  background-color: var(--jv-glass-control-active) !important;
+}
+body.theme-dark .nav-files-container :is(.nav-file-title.is-active, .tree-item-self.is-active) {
+  background-color: var(--jv-glass-control-active) !important;
+}
+.nav-files-container :is(.nav-file-title.is-active, .tree-item-self.is-active) {
+  background-image: none;
+  border: 0;
+  box-shadow: none;
+}
+
+/* 大纲等其他 tree-item 只需要定位反馈，不属于悬浮玻璃控件。 */
+.workspace-leaf-content[data-type="outline"] .tree-item-self.is-active {
+  background-color: var(--jv-fill-active);
+  border: 1px solid transparent;
+  box-shadow: none;
+}
+
+/* ---- 标签栏：透明融入玻璃；活动标签做成实心抬起小胶囊 ----
+   顶栏类 pill 定稿为实心哑光面浮起，无描边无
+   高光线——玻璃降级路径反而更稳（实心色无需退化逻辑），故不用玻璃 tint。 */
+.workspace-tab-header-container {
+  background: transparent;
+  border-bottom: 0;
+}
+/* 根区标签栏（v3.2 浮起胶囊模型，两轮用户反馈收敛）：
+   ① 栏底透明直通纸面时，纸色活动 pill 隐形、hover 反而有色（主次倒挂）；
+   ② 改铺 recessed 下凹带后，玻璃（侧栏）与纸（正文）之间多出第三种颜色，
+      顶部横向读作「玻璃-灰带-玻璃」三段拼接（割裂）。
+   收敛解：栏底回归透明纸面（顶部无带、与正文连续），活动标签的可见性
+   改由「海拔」承担——surface-float + 细描边 + shadow-1 的浮起小胶囊，
+   见下方 mod-root 标签三态规则。 */
+.workspace-tab-header {
+  border-radius: var(--jadeveil-radius-s);
+  transition: var(--jadeveil-transition);
+}
+/* Obsidian 原生活动标签通过左右伪元素绘制与标签栏相连的曲线。Jadeveil
+   使用独立的平面标签，这些连接件会在底边形成短线与双重轮廓。 */
+.workspace-tab-header::before,
+.workspace-tab-header::after {
+  display: none;
+}
+.workspace-tab-header.is-active {
+  background-color: var(--jv-glass-control-active);
+  background-image: none;
+  border: 0;
+  box-shadow: none;
+}
+/* 正文标签三态（v3.2 浮起胶囊）：静息裸文字、hover 轻 fill、活动浮起——
+   活动胶囊与纸面几乎同色，识别度来自 inset 细描边 + shadow-1 的海拔差，
+   不引入第三种底色（顶部保持纸面连续，见上方栏底注释）。 */
+.workspace-split.mod-root .workspace-tab-header-container-inner {
+  gap: 4px;
+  /* 垂直预算：容器定高 40，原生已内衬 6，2+30+2=34 恰好放下浮起胶囊——
+     4px+32px 会溢出 2px 被 inner 的 overflow:auto 裁掉底边（用户截图实锤） */
+  padding: 2px 6px;
+}
+.workspace-split.mod-root .workspace-tab-header {
+  height: 30px;
+  padding: 0 10px;
+  background-color: transparent;
+  border-radius: var(--jadeveil-radius-s);
+  color: var(--text-muted);
+}
+.workspace-split.mod-root .workspace-tab-header:hover {
+  background-color: var(--jv-fill-hover);
+  color: var(--text-normal);
+}
+.workspace-split.mod-root .workspace-tab-header.is-active {
+  background-color: var(--jv-surface-float);
+  color: var(--text-normal);
+  box-shadow: inset 0 0 0 1px var(--jv-border-faint), var(--jv-shadow-1);
+}
+body.theme-light .workspace-split.mod-root .workspace-tab-header.is-active {
+  /* v3.4（评审实锤可供性不足）：float #fbfaf7 与象牙纸几乎同明度，
+     浮起感只剩 1px 细环；纯白在暖纸上干净地浮起一档 */
+  background-color: #ffffff;
+}
+.workspace-split.mod-root .workspace-tab-header-inner::after {
+  display: none;
+}
+.workspace-split.mod-root .workspace-tab-header-new-tab {
+  margin-left: 0;
+  border-left: 0;
+}
+
+/* ---- 状态栏：Chrome 玻璃 + 上缘 seam ----
+   app.css 未对 status-bar 做 translucent 透明化，但玻璃覆盖仍统一用
+   同一高特异性前缀，保持级联结构一致。基底不透明色写进基础规则。 */
+.status-bar {
+  border-top: 1px solid var(--jv-border-seam);
+  font-size: 11px;
+  color: var(--text-muted);
+  background-color: var(--jv-surface-chrome);
+}
+body.is-translucent:not(.is-fullscreen):not(.jadeveil-glass-off) .status-bar {
+  background-color: var(--jv-glass-chrome-tint);
+  backdrop-filter: blur(var(--jadeveil-blur-chrome)) saturate(var(--jadeveil-saturate-chrome));
+  -webkit-backdrop-filter: blur(var(--jadeveil-blur-chrome))
+    saturate(var(--jadeveil-saturate-chrome));
+}
+
+/* ---- 编辑区：纸，不加 backdrop-filter，靠低不透明度即可 ----
+   基底无条件写不透明纸色——app.css 的 translucent 规则会把
+   .workspace-split 全部透明化，正文透到桌面会破坏「内容是纸」原则。 */
+.workspace-split.mod-root {
+  background-color: var(--background-primary);
+}
+body.is-translucent:not(.is-fullscreen):not(.jadeveil-glass-off)
+  .workspace-split.mod-root {
+  background-color: var(--jv-glass-paper) !important;
+}
+
+/* ---- 视图头部：透明 + 底部 faint 线 ----
+   设计理想是文档顶部无线，但 view-header 与滚动内容同色，完全去线会让标签页
+   悬空——保留一根 faint（比 seam 实一档）是工程折衷。 */
+.view-header {
+  background: transparent;
+  border-bottom: 1px solid var(--jv-border-seam);
+}
+.view-header-title-parent {
+  color: var(--text-muted); /* v3.4 a11y：面包屑是"要读的内容"，faint(2.15:1) 只配纯装饰 */
+}
+
+/* ═══════════════════════ 5b. Sidebar Refinement ═══════════════════════
+   左右侧栏精致化：顶部图标行做成 Apple segmented control 质感，
+   文件树收紧密度并分层着色，Ribbon 图标列低调化。
+   本节零 backdrop-filter——全部叠在 §5 已模糊的 chrome 玻璃之上。 */
+
+/* ---- 侧栏顶部图标行：容器透明融入玻璃，底部去线 ----
+   选择器天然覆盖左右两侧，无需分写。分段控件下方不画线，分层交给
+   控件自身的 pill 造型（§5 待落地），此处先去线，不留 hairline 占位。 */
+.workspace-split.mod-left-split .workspace-tab-header-container,
+.workspace-split.mod-right-split .workspace-tab-header-container {
+  background: transparent;
+  border-bottom: 0;
+}
+
+/* ---- 分段控件容器：整行浅灰圆角底，图标 tab 挤在里面 ----
+   -container-inner 是否存在取决于 Obsidian DOM 版本（D3 同类风险），已用
+   dev:dom 验证左右侧栏各 1 个节点，当前版本存在，直落地不设 fallback。 */
+.workspace-split.mod-left-split .workspace-tab-header-container-inner,
+.workspace-split.mod-right-split .workspace-tab-header-container-inner {
+  border-radius: var(--jadeveil-radius-s);
+  padding: 2px;
+  border: 1px solid var(--jv-border-faint);
+  background-image: none;
+  box-shadow: none;
+}
+body.theme-light .workspace-split.mod-left-split .workspace-tab-header-container-inner,
+body.theme-light .workspace-split.mod-right-split .workspace-tab-header-container-inner {
+  background: var(--jv-glass-control-tint);
+}
+body.theme-dark .workspace-split.mod-left-split .workspace-tab-header-container-inner,
+body.theme-dark .workspace-split.mod-right-split .workspace-tab-header-container-inner {
+  background: var(--jv-glass-control-tint);
+}
+
+/* 图标 tab：默认退灰，hover 出 fill，禁止位移 */
+.workspace-split.mod-left-split .workspace-tab-header,
+.workspace-split.mod-right-split .workspace-tab-header {
+  color: var(--text-muted);
+  border-radius: var(--jadeveil-radius-s);
+  transition: var(--jadeveil-transition);
+}
+.workspace-split.mod-left-split .workspace-tab-header:hover,
+.workspace-split.mod-right-split .workspace-tab-header:hover {
+  background-color: var(--jv-glass-control-hover);
+  color: var(--text-normal);
+}
+
+/* active 图标 tab：分段控件 active 段——实心 surface-float 抬起小
+   pill + 弥散 shadow-1，不用玻璃 tint/specular/描边（顶栏 pill 均为
+   实心哑光面浮起，无高光线）。图标去 accent 归中性。选择器带 -container
+   路径（0-5-0）：app.css 有同为 0-4-0 的 .mod-left-split ...-container
+   ....is-active { background: var(--background-modifier-hover) }，
+   实测平局判定不稳，直接高一级压过 */
+.workspace-split.mod-left-split
+  .workspace-tab-header-container
+  .workspace-tab-header.is-active,
+.workspace-split.mod-right-split
+  .workspace-tab-header-container
+  .workspace-tab-header.is-active {
+  /* v3 修偏：实现回归本节注释声明的「实心 surface-float 抬起小 pill」——
+     玻璃清透化后半透明 control-active 在透亮壁纸上会丢失胶囊轮廓 */
+  background-color: var(--jv-surface-float);
+  background-image: none;
+  border: 0;
+  box-shadow: var(--jv-shadow-1);
+  color: var(--text-normal);
+}
+
+/* ---- 文件树：行高/字号 v2 实测校准（浅色实测；深色文字色
+   为镜像推断，未实测），文件夹/文件双层着色 ----
+   行高 32px：line-height + padding 显式相加（20 + 6×2），不依赖浏览器默认
+   行高换算，两级字号（12/13px）共用同一行高基准，树内文件/文件夹行对齐。
+   圆角沿用上方 --jadeveil-radius-s(8px)，与 8px 药丸规格一致，未改。 */
+.nav-file-title,
+.nav-folder-title {
+  box-sizing: border-box;
+  min-height: 32px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  display: flex;
+  align-items: center;
+  line-height: 20px;
+  margin-bottom: 1px;
+}
+.nav-folder-title {
+  --nav-item-weight: 550;
+  --nav-item-weight-hover: 550;
+  --nav-item-weight-active: 550;
+  font-size: 13px;
+  font-weight: var(--nav-item-weight); /* normal / hover / active 保持同一字重 */
+  color: var(--text-normal);
+}
+.nav-folder-title-content {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.nav-folder-title-content::before {
+  content: "";
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  background-color: var(--text-muted);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.nav-folder-title:hover .nav-folder-title-content::before,
+.nav-folder-title.is-active .nav-folder-title-content::before {
+  background-color: var(--text-normal);
+}
+.nav-file-title {
+  --nav-item-weight: 400;
+  --nav-item-weight-hover: 400;
+  --nav-item-weight-active: 400;
+  font-size: 13px; /* v2 实测校准，替代原 13.5px */
+  font-weight: var(--nav-item-weight);
+}
+body.theme-light .nav-file-title {
+  color: rgba(26, 28, 30, 0.85); /* v2 白天实测校准，替代 --text-muted 派生值 */
+}
+body.theme-dark .nav-file-title {
+  color: var(--text-muted);
+}
+.nav-folder-collapse-indicator svg {
+  color: var(--text-faint);
+}
+
+/* 缩进引导线默认隐藏（Apple 风格，深树里是噪音）；
+   Style Settings「显示文件树缩进线」可恢复，见 @settings 面板 */
+.nav-files-container {
+  --indentation-guide-color: transparent;
+  --indentation-guide-color-active: transparent;
+}
+/* 实测缩进线是 .tree-item-children / .nav-folder-children 的
+   border-left（oklch 直写，不走上面的变量），直接置透明 */
+.nav-files-container .tree-item-children,
+.nav-files-container .nav-folder-children {
+  border-left-color: transparent;
+}
+body.jadeveil-indent-guides .nav-files-container {
+  --indentation-guide-color: var(--jv-border-faint);
+  --indentation-guide-color-active: var(--jv-border-hairline);
+}
+body.jadeveil-indent-guides .nav-files-container .tree-item-children,
+body.jadeveil-indent-guides .nav-files-container .nav-folder-children {
+  border-left-color: var(--jv-border-faint);
+}
+
+/* 文件 tag 徽标（如 BASE）：中性小胶囊（去 accent） */
+.nav-file-tag {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background-color: var(--jv-fill-chip);
+  color: var(--text-muted);
+}
+
+/* ---- 侧栏操作行与底部 ----
+   操作图标行（新建/排序）的 hover 已由 §7 控件层统一处理
+   （fill + 禁位移），此处不重复。底部 vault 切换条让玻璃透出：
+   app.css 的 body:not(.is-mobile) … .workspace-sidedock-vault-profile
+   { background-color: var(--background-secondary) } 因侧栏容器内
+   --background-secondary 已为 transparent（§5 基底）而自然透明，
+   此处显式声明 + 提特异性双保险。 */
+.workspace-split.mod-left-split .workspace-sidedock-vault-profile,
+.workspace-split.mod-right-split .workspace-sidedock-vault-profile {
+  background-color: transparent;
+  border-top: 1px solid var(--jv-border-hairline);
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+/* ---- Ribbon 图标列：默认最低调，hover 出 fill ----
+   透明 fill 反馈，禁止位移（§7 已全局 transform: none）。
+   .workspace-ribbon::before（红绿灯拖拽区，原生层）保持不动。 */
+.workspace-ribbon .clickable-icon,
+.side-dock-ribbon-action {
+  color: var(--text-muted);
+  border-radius: var(--jadeveil-radius-s);
+  transition: var(--jadeveil-transition);
+}
+.workspace-ribbon .clickable-icon:hover,
+.side-dock-ribbon-action:hover {
+  color: var(--text-normal);
+  background-color: var(--jv-glass-control-hover);
+  box-shadow: none;
+  /* §7 的 .clickable-icon:hover 在文件更后且会把圆角收到 xs，
+     此处显式重申 8px 保持 Ribbon 胶囊一致性 */
+  border-radius: var(--jadeveil-radius-s);
+}
+
+/* ═══════════════════════════ 6. Float Glass ═══════════════════════════
+   瞬态弹层统一使用较低饱和度的模糊玻璃 + tint-float + specular +
+   glass-border + shadow-float。backdrop-filter 白名单成员，见 §8 清单。
+   Electron 弹层层叠上下文偶发失效，故 background-color 兜底不设条件，
+   模糊失效时依然可读。 */
+/* tooltip 不在此组：体量太小，模糊无意义，且半透明白玻璃会让原生
+   白字（--text-on-accent）失明。tooltip 回归实心深色 chip，见下方专段。 */
+.prompt,
+.menu,
+.modal,
+.popover.hover-popover,
+.suggestion-container {
+  background-color: var(--jv-glass-float-tint);
+  background-image: var(--jv-glass-panel-sheen);
+  border: 1px solid var(--jv-glass-border);
+  box-shadow:
+    inset 0 1px 0 var(--jv-glass-specular),
+    inset 0 0 0 1px rgba(127, 127, 127, 0.05),
+    var(--jv-shadow-3);
+  backdrop-filter: blur(var(--jadeveil-blur-float)) saturate(var(--jadeveil-saturate-float));
+  -webkit-backdrop-filter: blur(var(--jadeveil-blur-float))
+    saturate(var(--jadeveil-saturate-float));
+}
+
+/* ---- 命令面板 / 快速切换 ---- */
+.prompt {
+  border-radius: 20px;
+}
+.prompt-input-container {
+  background: transparent;
+  border-bottom: 1px solid var(--jv-border-hairline);
+}
+.suggestion-item {
+  border-radius: var(--jadeveil-radius-m);
+  transition: var(--jadeveil-transition);
+}
+.suggestion-item:hover {
+  background-color: var(--jv-fill-hover); /* 去 accent，中性 hover */
+}
+.suggestion-item.is-selected {
+  background-color: var(--jv-glass-control-active);
+  box-shadow: none;
+}
+
+/* ---- 右键菜单：圆角略收，菜单项克制的 rgba hover，不用 accent 铺底 ---- */
+.menu {
+  border-radius: var(--jadeveil-radius-menu);
+  padding: 6px;
+}
+.menu-item {
+  border-radius: var(--jadeveil-radius-s);
+  transition: var(--jadeveil-transition);
+}
+.menu-item:hover,
+.menu-item.selected {
+  background-color: var(--jv-fill-active);
+}
+.menu-separator {
+  border-top: 1px solid var(--jv-border-hairline);
+}
+
+/* ---- 弹窗 ---- */
+.modal {
+  border-radius: var(--jadeveil-radius-xl);
+}
+.modal-bg {
+  background-color: var(--jv-scrim);
+}
+
+/* ---- hover 预览：内容区继承纸底 ---- */
+.popover.hover-popover {
+  border-radius: var(--jadeveil-radius-l);
+}
+.popover.hover-popover .markdown-preview-view,
+.popover.hover-popover .markdown-embed-content {
+  background-color: var(--background-primary);
+}
+
+/* ---- 建议列表（tag / link 自动完成弹层） ---- */
+.suggestion-container {
+  border-radius: var(--jadeveil-radius-l);
+}
+
+/* ---- Tooltip：实心深色 chip（不入 float 玻璃组）----
+   底色 + 文字全走官方变量单一真相源：--background-modifier-message
+   驱动 chip 底色与 .tooltip-arrow 箭头（app.css 原生），--text-on-accent
+   驱动白字，两者天然自洽。半透明 + 白字会失明，故实心不模糊。
+   深 chip + 白字在明暗两模式都恒定可读（macOS tooltip 做法）。 */
+.tooltip {
+  border-radius: 10px;
+  font-size: 12px;
+  padding: 4px 8px;
+  color: var(--text-on-accent);
+  background-color: var(--background-modifier-message);
+  box-shadow: var(--jv-shadow-2);
+}
+
+/* ═══════════════════════════ 7. Controls ═══════════════════════════ */
+
+/* ---- 按钮：禁止 scale 位移，只用 brightness 反馈 ---- */
+button,
+.clickable-icon {
+  border-radius: var(--jadeveil-radius-s);
+  transition: var(--jadeveil-transition);
+}
+button:hover,
+.clickable-icon:hover {
+  transform: none;
+}
+button:focus-visible,
+.clickable-icon:focus-visible,
+.nav-file-title:focus-visible,
+.nav-folder-title:focus-visible,
+.workspace-tab-header:focus-visible {
+  outline: 2px solid var(--jv-accent-fill);
+  outline-offset: 2px;
+}
+.mod-cta {
+  background-color: hsl(var(--accent-h), var(--accent-s), var(--accent-l));
+  color: #ffffff;
+}
+/* 深色 cta 白字实算仅 2.39:1（外部评审实锤，浅色校准时漏了深色一侧）；
+   换深墨字 7.2:1，且「深色浅底深字」更贴玉化语言 */
+body.theme-dark .mod-cta {
+  color: #0c1f1a;
+}
+.mod-cta:hover {
+  filter: brightness(1.08);
+}
+.mod-cta:active {
+  filter: brightness(0.94);
+}
+
+/* ---- 输入框 / 搜索框：hairline 边，focus 出 accent 光环 ---- */
+input[type="text"],
+input[type="search"],
+input[type="number"],
+input[type="email"],
+input[type="password"],
+textarea,
+.search-input-container input {
+  border-radius: var(--jadeveil-radius-s);
+  /* v3.4 a11y：hairline 实算 1.37:1 过弱，升 strong（≈2:1）。已知取舍：
+     3:1 达标需 alpha≥0.55 观感过重，表单边界的完整合规交给 focus 态的
+     accent 边框 + 0.4 光环，静息态以"可发现"为度 */
+  border: 1px solid var(--jv-border-strong);
+  transition: var(--jadeveil-transition);
+}
+input[type="text"]:focus,
+input[type="search"]:focus,
+input[type="number"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
+textarea:focus,
+.search-input-container input:focus {
+  border-color: var(--jv-accent-fill);
+  box-shadow: var(--jv-accent-ring);
+}
+
+/* Properties 面板豁免：key / 数字值的 input 默认无框（保持面板安静，
+   与文本值的 contenteditable 观感一致），focus 时仍走上面的 accent 光环。
+   保留 1px 透明边避免 focus 时布局跳动。 */
+.metadata-container input[type="text"]:not(:focus),
+.metadata-container input[type="number"]:not(:focus) {
+  border-color: transparent;
+}
+
+/* ---- 滚动条：overlay 极简 ---- */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background-color: rgba(127, 127, 127, 0.4); /* v3.4 a11y：0.25 实算 1.3:1 近不可见 */
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(127, 127, 127, 0.4);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---- 折叠箭头 / 图标按钮 hover：背景 fill，禁止位移 ---- */
+.collapse-icon:hover,
+.clickable-icon:hover {
+  background-color: var(--background-modifier-hover);
+  border-radius: var(--jadeveil-radius-xs);
+}
+
+/* ---- 拖拽分割线 hover：accent 色 ---- */
+.workspace-leaf-resize-handle:hover {
+  background-color: hsl(var(--accent-h), var(--accent-s), var(--accent-l));
+}
+
+/* ---- 统一过渡：只列出实际需要反馈的交互元素，绝不通配 * ---- */
+.nav-file-title,
+.nav-folder-title,
+.workspace-tab-header,
+.menu-item,
+.suggestion-item,
+.markdown-rendered a,
+.tag,
+.clickable-icon,
+button,
+input,
+textarea,
+.checkbox-container {
+  transition: var(--jadeveil-transition);
+}
+
+/* ═══════════════════════ 8. Style Settings Wiring ═══════════════════════
+   @settings 面板定义见文件头部注释块；此处只保留面板驱动的、不适合
+   就近写在语义章节里的收尾开关。「标题跟随正文字体」紧贴标题系统，
+   写在 §2；「关闭全部玻璃模糊」是性能逃生门，归入 §9。 */
+
+/* 纸感加深：v3 默认已是暖象牙纸，此开关再加深一档到奶油米黄。
+   --jv-glass-paper 必须同步重指（评审实锤断链）：translucent 态正文
+   纸面由它绘制（§5 mod-root 玻璃覆盖），漏掉则本开关在半透明窗口
+   （主题招牌形态）下对最大面积的正文是 no-op。 */
+body.theme-light.jadeveil-paper-warm {
+  --background-primary: #f7f4ea;
+  --background-primary-alt: #f0ece0;
+  --jv-glass-paper: rgba(247, 244, 234, 0.98);
+}
+
+/* 深色纯黑 OLED：只重指 base 阶梯，surface / 别名全自动跟随——不再就地改写
+   别名，消除 --jv-* 与 --jadeveil-* 在 OLED 态的语义分叉（Fable5 P2）。
+   玻璃 tint 是叶子令牌、无人派生，直接重指安全。随深色翻转重写：base-00
+   现指向 chrome（沉到最黑），base-10 指向 paper——OLED 的意义是纯黑省电，
+   paper 取 #0F0F0F 而非 #000 是为保住「content 比 chrome 亮」的明度秩序；
+   若用户反馈要纯黑正文，翻转秩序在 OLED 态豁免也合法（变体只重映射 token）。 */
+body.theme-dark.jadeveil-oled {
+  --jv-base-00: #0a0b0a; /* chrome */
+  --jv-base-10: #0f100f; /* paper，纯黑屏上留 6% 差 */
+  --jv-base-20: #161817; /* recessed */
+  --jv-glass-chrome-tint: rgba(10, 12, 11, var(--jadeveil-glass-alpha-dark)); /* OLED 玻璃加深，浓度随滑杆（v3.3 同步 v3.1 高 alpha 哲学，原 0.72 亮壁纸下塌黑） */
+  /* 叶子字面量必须逐个重指（评审实锤断链）：这三个 token 不从 base 阶梯
+     派生，漏掉则 translucent 正文纸面 / glass-off 侧栏退化色 / 浮层
+     仍是非 OLED 值，「chrome 沉到最黑」落空 */
+  --jv-surface-chrome: #0a0b0a;
+  --jv-glass-paper: rgba(15, 16, 15, 0.96);
+  --jv-glass-float-tint: rgba(22, 24, 23, 0.72);
+}
+
+/* ═══════════════════════ 9. A11y & Escape Hatches ═══════════════════════ */
+
+/* ---- 关闭全部玻璃模糊：性能 / 眩晕逃生门 ----
+   所有 backdrop-filter 归零，玻璃层退化为不透明纯色，不留半透明的
+   半成品状态。覆盖 §5 Chrome 与 §6 Float 两套玻璃。
+   注意 Chrome 部分不能只依赖 §5 基底：glass-off 开启且窗口仍
+   translucent 时，§5 玻璃规则因 :not(.jadeveil-glass-off) 已失效，
+   但 app.css 的 .is-translucent:not(.is-fullscreen) .workspace-split
+   { background-color: transparent !important }（0-4-0 !important）
+   仍压过基底，必须用更高特异性 + !important 强制落回不透明——
+   类名重复两次是刻意的特异性提升手法（0-4-1 > 0-4-0）。 */
+body.jadeveil-glass-off.jadeveil-glass-off :is(
+    .workspace-split.mod-left-split,
+    .workspace-split.mod-right-split,
+    .workspace-ribbon.side-dock-ribbon,
+    .status-bar
+  ) {
+  background-color: var(--jv-surface-chrome) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+body.jadeveil-glass-off.jadeveil-glass-off .workspace-split.mod-root {
+  background-color: var(--background-primary) !important;
+}
+
+/* glass-off 时把 --background-translucent 回浓：不透明基底已接管
+   各面板，但窗口本身（.app-container）仍是透明的，轻纱会让面板
+   之间的缝隙透出桌面，回浓遮实。 */
+body.jadeveil-glass-off.theme-light {
+  --background-translucent: rgba(255, 255, 255, 0.85);
+  --workspace-background-translucent: rgba(255, 255, 255, 0.85);
+}
+body.jadeveil-glass-off.theme-dark {
+  --background-translucent: rgba(10, 12, 11, 0.85);
+  --workspace-background-translucent: rgba(10, 12, 11, 0.85);
+}
+body.jadeveil-glass-off :is(
+    .prompt,
+    .menu,
+    .modal,
+    .popover.hover-popover,
+    .suggestion-container,
+    .tooltip
+  ) {
+  background-color: var(--jv-surface-float) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* ---- 减少动效：所有过渡 / 动画取消 ----
+   本文件的过渡规则均显式列出选择器（见 §7），此处的 * 是无障碍
+   兜底关闭，不是「通配过渡」的性能反模式。 */
+/* ---- 打印 / PDF 导出（v3.4，评审实锤零处理）：玻璃、阴影、深底
+   在纸上都是墨水灾难——导出一律回到白纸黑字基线。三个 !important
+   对抗全文件各处的阴影与玻璃声明（对抗对象过多，逐条压不现实，
+   print 上下文可整体豁免；已计入台账） */
+@media print {
+  body {
+    --background-primary: #ffffff;
+    --background-primary-alt: #f5f5f5;
+    --text-normal: #1a1a1a;
+  }
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+    backdrop-filter: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* ---- 正文对比度自查（不得改暗 muted 文字；数值为外部评审独立实算，
+   手写达标声明曾两度失实——更新时必须重算而非目测） ----
+   rgb(47,46,42) on #FBFAF7 = 13.0:1 ✓
+   rgb(215,217,214) on #1F2120 = 11.4:1 ✓
+   青玉链接 hsl(166,52%,32%) on #FBFAF7 = 4.83:1 ✓AA
+   青玉链接 hsl(166,42%,62%) on #1F2120 = 8.16:1 ✓AA
+   浅色代码板 8 色 ≥4.5 ✓（v3.4 重校）　callout 浅色题字全族 ≥5 ✓（v3.4）
+   backdrop-filter 覆盖面清单（与 §8 白名单一一对应，全文件仅四条规则
+   出现真实 blur()，逃生门里的 none 不计入）：
+     左侧栏 / 右侧栏（§5，共享一条规则）、状态栏（§5，单独一条）、
+     Ribbon（§5，v3 起单独一条，与侧栏融为一块玉幕；其 ::before 拖拽区
+     不绘制不模糊），均带 body.is-translucent:not(.is-fullscreen):not(.jadeveil-glass-off)
+     前缀（0-5-1，压过 app.css translucent 透明化规则的 0-4-0）
+     .menu / .modal / .prompt / .popover.hover-popover /
+     .suggestion-container（§6，五个选择器共享一条规则）
+   tooltip 刻意不在名单内：体量太小模糊无意义，且半透明会让原生白字
+   失明，改为实心深色 chip（见 §6 Tooltip 专段）。
+   §5b 侧栏精致化整节零 backdrop-filter——全部叠在已模糊的玻璃之上。
+   不使用 will-change，不 hack `*` 通配过渡（reduced-motion 内的 *
+   是无障碍关闭而非样式过渡，见上）。 */
+
+/* ═══════════════════ 10. 长尾表面覆盖（全覆盖扫尾）═══════════════════
+   把露 Obsidian 默认样式的长尾表面纳入设计语言，全部引用 --jv-* 令牌。
+   现状（诚实声明）：仅落地 frontmatter 属性面板一组。原规划的
+   通知(.notice) / 设置 / 搜索高亮 / 图谱(--graph-*) / Canvas 均未实施，
+   目前裸奔在 Obsidian 默认样式上——待后续按需补齐，勿被本节标题误导。 */
+
+/* ---- Frontmatter 属性编辑器：安静的下凹工具面，不使用外框卡片 ---- */
+.metadata-container {
+  border: 0;
+  border-radius: var(--jadeveil-radius-s);
+  padding: 0.35em 0.9em;
+  margin-bottom: 1.6em;
+  background-color: var(--jv-surface-paper-alt);
+}
+.metadata-properties-heading {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+.metadata-property {
+  min-height: 26px;
+}
+.metadata-property-key,
+.metadata-property-key-input {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.metadata-property-icon {
+  color: var(--text-faint);
+}
+.metadata-property-value {
+  font-size: 14px;
+}
+.metadata-add-button {
+  color: var(--text-muted);
+  font-size: 12px;
+  border-radius: var(--jadeveil-radius-s);
+  transition: var(--jadeveil-transition);
+}
+.metadata-add-button:hover {
+  background-color: var(--jv-fill-hover);
+  color: var(--text-normal);
+}
