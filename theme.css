@@ -1670,12 +1670,17 @@ body.theme-dark input[data-task="?"].task-list-item-checkbox:checked {
 /* LP 悬停外框圆角对齐（v3.4.1，用户实锤四角穿帮）：callout 在实时预览里
    由 .cm-embed-block 宿主承载，宿主默认 r0——hover 的方角描边套在 10px
    圆角卡外面。宿主圆角对齐内容物；mermaid 宿主同病同修（6px）。 */
-.markdown-source-view.mod-cm6 .cm-embed-block.cm-callout {
+.markdown-source-view.mod-cm6 .cm-embed-block.cm-callout,
+.markdown-source-view.mod-cm6 .cm-embed-block.cm-callout:hover {
   border-radius: var(--jadeveil-radius-m);
 }
-.markdown-source-view.mod-cm6 .cm-embed-block:has(> .mermaid) {
+.markdown-source-view.mod-cm6 .cm-embed-block:has(> .mermaid),
+.markdown-source-view.mod-cm6 .cm-embed-block:has(> .mermaid):hover {
   border-radius: 6px;
 }
+/* :hover 形态必须显式写（v3.4.2，用户实锤二连）：app.css 的
+   `.cm-embed-block:not(...):hover` 自带 border-radius: var(--radius-s)，
+   静息态修好的圆角一进 hover 又被拍回 4px。同特异性晚加载压回。 */
 
 /* ═══════════════════════════ 5. Chrome Glass ═══════════════════════════
    级联结构：「退化态为基底、玻璃态为高特异性覆盖」。
@@ -1877,8 +1882,14 @@ body.theme-dark .nav-files-container :is(.nav-file-title.is-active, .tree-item-s
   color: var(--text-muted);
 }
 .workspace-split.mod-root .workspace-tab-header:hover {
-  background-color: var(--jv-fill-hover);
+  background-color: var(--jv-fill-active); /* v3.4.2：inner 双画笔掐掉后 hover 由本层独担，提一档可感 */
   color: var(--text-normal);
+}
+/* 页签 hover 双画笔修复（v3.4.2，用户实锤）：app.css 把 hover 底色画在
+   .workspace-tab-header-inner 上（自有几何与圆角，呈方角灰块），与本主题
+   header 层的胶囊 hover 叠成两层。掐掉 inner 层，hover 视觉统一走胶囊。 */
+.workspace-tab-header-container .workspace-tab-header:not(.is-active):hover .workspace-tab-header-inner {
+  background-color: transparent;
 }
 .workspace-split.mod-root .workspace-tab-header.is-active {
   background-color: var(--jv-surface-float);

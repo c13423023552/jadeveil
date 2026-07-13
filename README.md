@@ -1,10 +1,12 @@
 # Jadeveil 玉幕
 
-An Obsidian theme for Chinese technical writing: translucent sidebars, warm paper-toned reading surface, and a low-saturation jade green accent.
+English | [中文](README.zh.md)
 
-为中文技术写作调校的 Obsidian 主题：半透明侧栏、暖纸色阅读面、低饱和青玉强调色。
+An Obsidian theme for CJK-heavy technical writing: translucent sidebars, a warm paper-toned reading surface, and a low-saturation jade green accent.
 
-![light](screenshot-light.png) ![dark](screenshot-dark.png)
+| Light | Dark |
+|---|---|
+| ![light](screenshot-light.png) | ![dark](screenshot-dark.png) |
 
 ## Features
 
@@ -28,7 +30,7 @@ Until it's in the community theme store: copy `manifest.json` and `theme.css` in
 
 ## Notes
 
-`theme.css` is heavily commented (in Chinese) — token structure, why each `!important` exists, and which Obsidian internals the theme depends on. `DESIGN.md` has a short summary of the design decisions.
+`theme.css` is heavily commented (in Chinese) — token structure, why each `!important` exists, and which Obsidian internals the theme depends on. [`DESIGN.md`](DESIGN.md) has a short summary of the design decisions.
 
 ## License
 
