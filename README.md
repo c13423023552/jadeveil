@@ -29,11 +29,7 @@ Jadeveil's core metaphor is **"a jade veil carrying paper and ink"** (玉幕承�
 
 ## Engineering
 
-This theme ships with its own quality tooling (see `scripts/`):
-
-- `theme_lint.py` — static checks: brace balance, a `backdrop-filter` whitelist, an **`!important` ledger** (every one is registered with the app.css rule it fights), token orphan detection, raw-color ratchet, `@settings` YAML validation. Runs in CI.
-- `theme_smoke.py` — runtime assertions against a live Obsidian instance (light/dark × variant matrix: OLED / warm paper / glass-off), maintainer tooling.
-- `theme.css` opens with a **maintenance contract**: public vs. internal token tiers, variant rules ("variants may only remap tokens"), and a dependency ledger (D1–D6) tracking every undocumented Obsidian internal the theme touches.
+`theme.css` opens with a **maintenance contract**: public vs. internal token tiers, variant rules ("variants may only remap tokens"), an **`!important` ledger** (every one registered with the app.css rule it fights), and a dependency ledger (D1–D6) tracking every undocumented Obsidian internal the theme touches. QA tooling (static lint + runtime smoke tests) lives in the maintainer's source repository and is not part of this distribution.
 
 Comments are written in Chinese — the theme targets Chinese technical writing and the comments are part of its design record. Section headers are numbered (§0–§10) for navigation.
 
