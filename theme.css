@@ -1667,6 +1667,16 @@ body.theme-dark input[data-task="?"].task-list-item-checkbox:checked {
   color: var(--text-normal);
 }
 
+/* LP 悬停外框圆角对齐（v3.4.1，用户实锤四角穿帮）：callout 在实时预览里
+   由 .cm-embed-block 宿主承载，宿主默认 r0——hover 的方角描边套在 10px
+   圆角卡外面。宿主圆角对齐内容物；mermaid 宿主同病同修（6px）。 */
+.markdown-source-view.mod-cm6 .cm-embed-block.cm-callout {
+  border-radius: var(--jadeveil-radius-m);
+}
+.markdown-source-view.mod-cm6 .cm-embed-block:has(> .mermaid) {
+  border-radius: 6px;
+}
+
 /* ═══════════════════════════ 5. Chrome Glass ═══════════════════════════
    级联结构：「退化态为基底、玻璃态为高特异性覆盖」。
 
